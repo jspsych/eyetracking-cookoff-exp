@@ -81,6 +81,7 @@ What a participant can hit, and where it goes:
 | | |
 |---|---|
 | no key press within 20 s | screened out (`no_keyboard`) |
+| no WebGL in the browser (hardware acceleration off, GPU blocklisted) | screened out at once (`no_webgl`), before any model downloads: the face tracker cannot run without it |
 | camera refused or broken, three tries | screened out (`no_camera`) |
 | no face found within 60 s of the camera preview | screened out (`no_face`) |
 | upload fails after four tries | offered a download of their data, then completed as normal |

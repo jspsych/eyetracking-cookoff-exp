@@ -293,6 +293,37 @@
     },
   };
 
+  /**
+   * WebGL, checked before the camera or the 32 MB of models are touched.
+   *
+   * The face tracker cannot run without it, even on its CPU path, so a browser with no WebGL
+   * would download everything, sit on "Looking for your face…" until the face timeout, and be
+   * told its face could not be found. This stops that participant at once, with the real reason.
+   * A trial of zero duration: nothing is shown unless the check fails.
+   */
+  const webglCheck = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "",
+    choices: "NO_KEYS",
+    trial_duration: 0,
+    data: { screening: "webgl" },
+    on_finish: (data) => {
+      const webgl = CookoffCapability.probeWebGL();
+      Object.assign(data, webgl);
+      jsPsych.data.addProperties(webgl);
+      if (!webgl.webgl_version) {
+        return screenOut(
+          "no_webgl",
+          "Sorry — this computer can't run the study",
+          `<p>The eye tracker needs your browser's graphics features (WebGL), and they are turned
+           off or unavailable here.</p>
+           <p>This can happen when hardware acceleration is switched off in the browser's
+           settings.</p>`,
+        );
+      }
+    },
+  };
+
   /*
    * Camera illustrations.
    *
@@ -1048,6 +1079,7 @@
   // cannot do the task finds out before either is downloaded.
   if (config.screening.browser_check) timeline.push(browserCheck);
   if (config.screening.keyboard_gate) timeline.push(keyboardGate);
+  timeline.push(webglCheck);
   if (config.screening.camera_question) timeline.push(cameraQuestion);
   timeline.push(cameraPermission);
   if (config.fullscreen) timeline.push(enterFullscreen);

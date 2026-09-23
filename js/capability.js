@@ -116,5 +116,34 @@
     };
   }
 
-  global.CookoffCapability = { probeWebGPU, measureRidgePredict, hardware };
+  /**
+   * Whether the page can get a WebGL context at all, and whose renderer it is.
+   *
+   * MediaPipe's face tracker needs WebGL even on its CPU path: it uploads each video frame
+   * through a WebGL texture, and without a context every detection throws. A browser with no
+   * WebGL (GPU blocklisted, hardware acceleration off, or `--disable-gpu`) therefore can never
+   * find a face, however good the camera. Recent Chrome no longer falls back to software WebGL
+   * on its own, so this is a real configuration, not a curiosity.
+   */
+  function probeWebGL() {
+    for (const kind of ["webgl2", "webgl"]) {
+      try {
+        const gl = document.createElement("canvas").getContext(kind);
+        if (!gl) continue;
+        const info = gl.getExtension("WEBGL_debug_renderer_info");
+        const renderer = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null;
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+        return {
+          webgl_version: kind,
+          webgl_renderer: renderer,
+          webgl_software: /swiftshader|llvmpipe|software/i.test(renderer || ""),
+        };
+      } catch {
+        // try the next kind
+      }
+    }
+    return { webgl_version: null, webgl_renderer: null, webgl_software: null };
+  }
+
+  global.CookoffCapability = { probeWebGPU, probeWebGL, measureRidgePredict, hardware };
 })(window);
