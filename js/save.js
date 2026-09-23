@@ -54,7 +54,22 @@
       body: payload,
     });
     if (response.status === 201 || response.status === 202) return response.status;
-    const error = new Error(`DataPipe returned ${response.status}`);
+    // DataPipe says why in the body's `error` field (collection off, session limit, duplicate
+    // filename, failed validation). Without it a 400 is undiagnosable after the fact.
+    let reason = "";
+    try {
+      const text = await response.text();
+      try {
+        const parsed = JSON.parse(text);
+        reason = [parsed.error, parsed.message].filter(Boolean).join(" — ") || text;
+      } catch {
+        reason = text;
+      }
+    } catch {
+      // no body to read
+    }
+    reason = String(reason || "").trim().slice(0, 300);
+    const error = new Error(`DataPipe returned ${response.status}${reason ? `: ${reason}` : ""}`);
     error.final = response.status >= 400 && response.status < 500;
     throw error;
   }
