@@ -42,6 +42,7 @@ IMAGE_FIELDS = ("saccade_crop", "crop_frames")
 # is stated rather than decided here.
 OPTIONAL = {
     "head_landmarks": "nine facial points per frame — head-position covariate, weak face geometry",
+    "head_pose": "head rotation and position per frame — a covariate, carries no face geometry",
     "user_agent": "browser and OS string — a fingerprinting surface, not needed for analysis",
     "webgpu_description": "GPU model string — a fingerprinting surface",
 }

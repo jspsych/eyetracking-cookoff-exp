@@ -40,6 +40,15 @@
    */
   const HEAD_LANDMARKS = [1, 10, 152, 234, 454, 33, 133, 362, 263];
 
+  /**
+   * The head pose per frame: MediaPipe's facial transformation matrix, a 4x4 rigid transform
+   * from its canonical face model to this face, stored column-major (translation in elements
+   * 12-14, in MediaPipe's model units, about cm). `Saccade.headPoseFromMatrix` turns it into
+   * yaw, pitch and roll. A frame with no matrix is stored as NaN.
+   */
+  const POSE_LEN = 16;
+  const NO_POSE = new Float32Array(POSE_LEN).fill(NaN);
+
   /** Eye-aspect-ratio landmarks, [outer, upper1, upper2, inner, lower2, lower1] per eye. */
   const EAR_RIGHT = [33, 160, 158, 133, 153, 144];
   const EAR_LEFT = [362, 385, 387, 263, 373, 380];
@@ -106,7 +115,7 @@
   /** Loads this recorder's own MediaPipe face mesh. The camera and the encoder come from the tracker. */
   DualRecorder.prototype.init = async function () {
     if (this.landmarker) return;
-    this.landmarker = await global.Saccade.createLandmarker({ assets: this.assets });
+    this.landmarker = await global.Saccade.createLandmarker({ assets: this.assets, headPose: true });
     const identity = this.model.identity ? this.model.identity() : null;
     if (identity && identity.dim) this.embeddingDim = identity.dim;
   };
@@ -154,6 +163,7 @@
       wgRight: [],
       wgBox: [],
       head: [],
+      pose: [],
       ear: [],
       clockSource: null,
       nFaceMissing: 0,
@@ -313,7 +323,7 @@
   /** Everything that touches the image: one draw, one readback, one detection, two crops. */
   DualRecorder.prototype.capture = function (time) {
     const video = this.tracker.video;
-    const stage = { time, faceFound: false, crop: null, wg: null, head: null, ear: null };
+    const stage = { time, faceFound: false, crop: null, wg: null, head: null, pose: null, ear: null };
     const W = video.videoWidth;
     const H = video.videoHeight;
     if (!W || !H) return stage;
@@ -327,9 +337,15 @@
     this.ctx.drawImage(video, 0, 0, W, H);
     const frame = this.ctx.getImageData(0, 0, W, H).data;
 
-    const landmarks = this.landmarker.detect(video, performance.now());
+    // detectFace() is saccade.js core 0.3.0 and later; an older build has only detect(), and
+    // records no pose rather than failing.
+    const face = this.landmarker.detectFace
+      ? this.landmarker.detectFace(video, performance.now())
+      : { landmarks: this.landmarker.detect(video, performance.now()), pose: null };
+    const landmarks = face && face.landmarks;
     if (!landmarks) return stage;
     stage.faceFound = true;
+    stage.pose = face.pose || NO_POSE;
 
     const crop = global.Saccade.extractEyeCrop(frame, W, H, landmarks);
     if (crop) stage.crop = crop.data;
@@ -428,6 +444,7 @@
       stage.wg.boxes.right.height,
     ]);
     buffer.head.push(stage.head);
+    buffer.pose.push(stage.pose);
     buffer.ear.push(stage.ear);
   };
 
@@ -459,6 +476,7 @@
       webgazer_gray_right: E.encodeU8Rows(buffer.wgRight, global.CookoffWebGazer.PATCH_LEN),
       webgazer_eye_box: E.encodeI16Rows(buffer.wgBox, 8),
       head_landmarks: E.encodeF16Rows(buffer.head, HEAD_LANDMARKS.length * 3),
+      head_pose: E.encodeF16Rows(buffer.pose, POSE_LEN),
       eye_aspect_ratio: E.encodeF16Rows(buffer.ear, 2),
     };
   };
@@ -473,6 +491,7 @@
       video_width: this.tracker.video.videoWidth,
       video_height: this.tracker.video.videoHeight,
       head_landmark_indices: HEAD_LANDMARKS,
+      head_pose_recorded: !!(this.landmarker && this.landmarker.headPose),
       eye_crop: [EYE_W, EYE_H],
     };
   };

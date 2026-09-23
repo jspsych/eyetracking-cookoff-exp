@@ -61,7 +61,15 @@ def gather(path: str) -> dict:
     stack = lambda field, dt, stride: np.vstack(  # noqa: E731
         [unpack(r[field], dt, stride) for r in rows]
     ).astype(float)
+    # head_pose arrived later than the other streams; a session without it gets NaN rows, so
+    # everything below can treat "no pose" and "no pose on this frame" the same way.
+    pose = np.vstack([
+        unpack(r["head_pose"], "f2", 16).astype(float) if r.get("head_pose")
+        else np.full((r["n_frames"], 16), np.nan)
+        for r in rows
+    ])
     return {
+        "pose": pose,
         "left": stack("webgazer_gray_left", "u1", 60),
         "right": stack("webgazer_gray_right", "u1", 60),
         "box": stack("webgazer_eye_box", "i2", 8),
@@ -71,6 +79,22 @@ def gather(path: str) -> dict:
         "block": np.concatenate([[r["block"]] * r["n_frames"] for r in rows]),
         "n_trials": len(rows),
     }
+
+
+def head_pose_angles(pose: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Yaw, pitch and roll in degrees, and z, from column-major 4x4 head-pose matrices.
+
+    The same decomposition as saccade.js's `headPoseFromMatrix`: R = Ry(yaw) Rx(pitch) Rz(roll),
+    and element (row r, column c) of a column-major matrix is m[c * 4 + r]. Which direction is
+    positive follows MediaPipe's face-model axes; check a sign against a deliberate head turn
+    before reading anything into it.
+    """
+    at = lambda r, c: pose[:, c * 4 + r]  # noqa: E731
+    pitch = np.degrees(np.arcsin(np.clip(-at(1, 2), -1, 1)))
+    yaw = np.degrees(np.arctan2(at(0, 2), at(2, 2)))
+    roll = np.degrees(np.arctan2(at(1, 0), at(1, 1)))
+    return yaw, pitch, roll, pose[:, 14]
 
 
 def main() -> None:
@@ -91,6 +115,7 @@ def main() -> None:
     iod = np.linalg.norm(lc - rc, axis=1)
     mid = (lc + rc) / 2
     roll = np.degrees(np.arctan2(lc[:, 1] - rc[:, 1], lc[:, 0] - rc[:, 0]))
+    yaw, pitch, pose_roll, pose_z = head_pose_angles(d["pose"])
 
     print(f"{n} frames from {d['n_trials']} trials\n")
 
@@ -110,6 +135,15 @@ def main() -> None:
     print(f"  head roll                 {roll.mean():+5.2f} +- {roll.std():4.2f} deg")
     print(f"  nose tip (normalized)     x {head[:, 0].mean():.3f} +- {head[:, 0].std():.4f}"
           f"   y {head[:, 1].mean():.3f} +- {head[:, 1].std():.4f}")
+    has_pose = bool(np.isfinite(yaw).any())
+    if has_pose:
+        print(f"  head pose (MediaPipe)     yaw {np.nanmean(yaw):+5.1f} +- {np.nanstd(yaw):4.1f} deg"
+              f"   pitch {np.nanmean(pitch):+5.1f} +- {np.nanstd(pitch):4.1f}"
+              f"   roll {np.nanmean(pose_roll):+5.1f} +- {np.nanstd(pose_roll):4.1f}")
+        print(f"                            distance {np.nanmean(-pose_z):5.1f} +- "
+              f"{np.nanstd(pose_z):4.1f} model units (about cm, under MediaPipe's assumed camera)")
+    else:
+        print("  head pose                 not recorded in this session")
 
     print("\nEYE STATE")
     lo = ear.min(axis=1)
@@ -126,17 +160,22 @@ def main() -> None:
           f"   10th pct {np.percentile(d['weight'], 10):.2f}")
 
     print("\nDRIFT ACROSS BLOCKS")
-    print(f"  {'block':>6} {'brightness':>11} {'iod px':>8} {'mid x':>7} {'mid y':>7} {'roll':>7}")
+    print(f"  {'block':>6} {'brightness':>11} {'iod px':>8} {'mid x':>7} {'mid y':>7} {'roll':>7}"
+          + (f" {'yaw':>7} {'pitch':>7}" if has_pose else ""))
     for b in sorted(set(block)):
         m = block == b
         print(f"  {int(b):>6} {left[m].mean():>11.1f} {iod[m].mean():>8.1f}"
-              f" {mid[m, 0].mean():>7.1f} {mid[m, 1].mean():>7.1f} {roll[m].mean():>+7.2f}")
+              f" {mid[m, 0].mean():>7.1f} {mid[m, 1].mean():>7.1f} {roll[m].mean():>+7.2f}"
+              + (f" {np.nanmean(yaw[m]):>+7.2f} {np.nanmean(pitch[m]):>+7.2f}" if has_pose else ""))
 
     # Do any of them relate to the outcome? Fitted in-sample on purpose: the question here is
     # whether a covariate tracks error within a session, not how well the model generalizes.
     stations, _ = load(args.session)
     kernel = fit_saccade(stations)
-    err, cov = [], {k: [] for k in ("brightness", "contrast", "iod", "roll", "mid_x", "ear", "weight")}
+    names = ["brightness", "contrast", "iod", "roll", "mid_x", "ear", "weight"]
+    if has_pose:
+        names += ["yaw", "pitch"]
+    err, cov = [], {k: [] for k in names}
     offset = 0
     for s in stations:
         gaze = predict_saccade(kernel, s.embeddings) * s.viewport
@@ -155,6 +194,9 @@ def main() -> None:
         cov["mid_x"].append(mid[idx, 0])
         cov["ear"].append(ear[idx].mean(axis=1))
         cov["weight"].append(d["weight"][idx])
+        if has_pose:
+            cov["yaw"].append(yaw[idx])
+            cov["pitch"].append(pitch[idx])
         offset += s.n_all_frames
 
     if err:
@@ -162,9 +204,10 @@ def main() -> None:
         print(f"\nCORRELATION WITH saccade.js ERROR   ({len(err)} frames, in-sample fit)")
         for name, parts in cov.items():
             v = np.concatenate(parts)
-            if v.std() < 1e-9:
+            ok = np.isfinite(v)
+            if ok.sum() < 3 or v[ok].std() < 1e-9:
                 continue
-            r = float(np.corrcoef(v, err)[0, 1])
+            r = float(np.corrcoef(v[ok], err[ok])[0, 1])
             flag = "  <-" if abs(r) > 0.2 else ""
             print(f"  {name:<12} r = {r:+.2f}{flag}")
         print("  Within one session these are weak by construction: the conditions barely varied.")

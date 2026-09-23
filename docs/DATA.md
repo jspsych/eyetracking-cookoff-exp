@@ -38,6 +38,7 @@ streams may be shorter**; see *Frames with both trackers* below.
 | `webgazer_gray_right` | uint8 | 60 | the right eye's patch |
 | `webgazer_eye_box` | int16 | 8 | `[lx, ly, lw, lh, rx, ry, rw, rh]`, in camera pixels |
 | `head_landmarks` | float16 | 27 | nine landmarks as `(x, y, z)`, normalized |
+| `head_pose` | float16 | 16 | MediaPipe's 4x4 head-pose matrix, column-major; NaN when it gave none |
 | `eye_aspect_ratio` | float16 | 2 | left then right; low means a closing eye |
 
 In Python:
@@ -57,6 +58,14 @@ left       = unpack(row["webgazer_gray_left"], "u1", 60)                     # (
 
 The nine `head_landmarks` are MediaPipe indices `[1, 10, 152, 234, 454, 33, 133, 362, 263]` —
 nose tip, forehead, chin, both face edges, and the four eye corners.
+
+`head_pose` is the rigid transform from MediaPipe's canonical face model to the face in that
+frame: rotation in the upper-left 3x3, translation in elements 12–14 in MediaPipe's model units
+(about centimeters, under the camera field of view MediaPipe assumes, so treat the distance as
+relative). `analysis/observers.py` turns it into yaw, pitch and roll with the same decomposition as
+saccade.js's `headPoseFromMatrix`. Which direction counts as positive follows MediaPipe's axes;
+check the sign against a deliberate head turn before interpreting it. Sessions recorded before
+saccade.js core 0.3.0 have no `head_pose`, and `head_pose_recorded` is false.
 
 `saccade_weight` is NaN for every frame when the loaded model has no second output for it. That
 is a model-wide fact, not a per-frame one, so check the first value and treat the column as
