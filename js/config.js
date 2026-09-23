@@ -271,8 +271,8 @@ window.CookoffConfig = {
    * download if the upload keeps failing, so a session is never lost to a network error.
    */
   save: {
-    mode: "download",
-    datapipe_experiment_id: "",
+    mode: "datapipe",
+    datapipe_experiment_id: "0ixlhzrhiGQn",
     filename_prefix: "cookoff",
     /** Upload attempts before falling back to a download. Only network errors and server
      *  errors are retried; a 400 is DataPipe refusing the data, and resending will not help. */

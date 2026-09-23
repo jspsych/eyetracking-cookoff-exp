@@ -66,8 +66,8 @@ study:
    `scripts/sync-saccade.sh`, and commit `lib/`. Every session records
    `saccade_build_version`, `saccade_build_commit` and `saccade_build_dirty`, so a session
    built from a feature branch or uncommitted changes can be identified afterwards.
-2. **Fill in `js/config.js`:** `save.mode: "datapipe"`, `save.datapipe_experiment_id`,
-   `prolific.completion_code`, and `prolific.screenout_code` if the study pays screen-outs.
+2. **Fill in `js/config.js`:** `prolific.completion_code`, and `prolific.screenout_code` if the
+   study pays screen-outs. DataPipe is already set up (`save.datapipe_experiment_id`).
    Someone arriving with a `PROLIFIC_PID` is turned away before anything starts until the first
    three are set, so a half-configured study cannot collect data it then loses.
 3. **Point Prolific at the page with its IDs:**
@@ -410,8 +410,10 @@ shipped, with lambda 3 for nine points or fewer, the 3x3 was about 100 px.
 1-3 (`eye-tracking/EXPERIMENT_LOG.md`). Whether that holds live is one of the questions this
 study answers.
 
-Data goes to a downloaded file by default. For real collection, set `save.mode` to `datapipe`
-and fill in the experiment ID in `js/config.js`.
+Data goes to DataPipe (`save.mode: "datapipe"` in `js/config.js`); `"download"` saves a file in
+the browser instead. A session opened without a `PROLIFIC_PID` is a pilot. It still uploads, so
+the whole path gets exercised, but under a `pilot_` filename prefix and with `pilot: true` on every
+row, so a test run cannot be mistaken for a participant.
 
 ## Releasing the data
 

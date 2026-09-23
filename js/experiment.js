@@ -113,8 +113,15 @@
     }
   }
 
+  // A session that did not arrive from Prolific is a pilot: it still uploads, so the whole path
+  // gets exercised, but under its own filename prefix and flagged in the data, so it cannot be
+  // mistaken for a participant.
+  const pilot = !prolific.prolific_pid;
+  if (pilot) config.save.filename_prefix = `pilot_${config.save.filename_prefix || "cookoff"}`;
+
   jsPsych.data.addProperties({
     participant_id: participantId,
+    pilot,
     ...prolific,
     experiment: "eyetracking-cookoff",
     version: "1.0.0",
@@ -203,7 +210,7 @@
     const next = code
       ? `<p><a class="ck-btn" href="${prolificUrl(code)}">Return to Prolific</a></p>`
       : `<p>Please return the study on Prolific. There is nothing else you need to do.</p>`;
-    CookoffSave.saveSession(jsPsych, { ...config.save, attempts: 1 }, { prefix: "screenout" })
+    CookoffSave.saveSession(jsPsych, { ...config.save, attempts: 1 }, { prefix: pilot ? "pilot_screenout" : "screenout" })
       .finally(() => {
         const slot = document.getElementById("ck-screenout-next");
         if (slot) slot.innerHTML = next;
