@@ -961,8 +961,8 @@
         const probes = rows.filter({ probe: true });
         const hits = probes.filter({ probe_outcome: "hit" }).count();
         return `<p>You spotted <strong>${hits} of ${probes.count()}</strong> color changes.</p>
-          <p>Feel free to take a short break. When you're ready, settle back into the same
-          position.</p>`;
+          <p>Please stay in the same position, and continue when you're ready for the next
+          block.</p>`;
       },
     );
   }
