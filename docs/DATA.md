@@ -210,6 +210,27 @@ user-agent string can lie in both directions — a tablet with a keyboard attach
 usable, and a desktop browser in mobile emulation is not a phone — so the gate tests the thing
 the task needs rather than the string.
 
+From the end questionnaire, asked after the eye tracking so nothing in it moves the participant
+between calibration and test. Every question can be declined; a question switched off in
+`config.questions` records `null`.
+
+| field | |
+|---|---|
+| `eyewear` | `glasses`, `contacts`, `neither` or `prefer_not` |
+| `technical_problems` | the answer to "Did you encounter any technical problems?", or `null` if left blank |
+| `interruptions` | the answer to "Did anything interrupt your ability to keep your eyes on the targets?", or `null` if left blank |
+
+Both free-text answers are optional and can name people, places or devices;
+`redact.py --strip technical_problems interruptions` removes them from the public copy.
+
+Demographics are not asked. Prolific's demographic export carries age, sex and the rest, keyed on
+the Prolific ID, which is `participant_id` here.
+
+These answers are the only record of *why* a session went badly from the participant's side. The
+covariates can show a head that drifted or lighting that changed; this is what says someone
+walked in. Blank does not mean nothing went wrong. Decide how it will be used before looking at
+the accuracy numbers, since it is easy to read selectively in favor of one tracker.
+
 From the timing measurement: `timing_lag_ms`, `timing_verdict` (`OK` / `INCONCLUSIVE` /
 `UNRELIABLE`), `timing_plateau_width_ms` (the uncertainty on the lag — one camera frame or less
 is expected), `timing_camera_period_ms`.

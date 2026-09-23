@@ -45,6 +45,8 @@ OPTIONAL = {
     "head_pose": "head rotation and position per frame — a covariate, carries no face geometry",
     "user_agent": "browser and OS string — a fingerprinting surface, not needed for analysis",
     "webgpu_description": "GPU model string — a fingerprinting surface",
+    "technical_problems": "the participant's own words — may name people, places or devices",
+    "interruptions": "the participant's own words — may name people or places",
 }
 
 
@@ -162,6 +164,9 @@ def main() -> None:
         for field in args.strip:
             if row.pop(field, None) is not None:
                 removed[field] += 1
+            # The end questionnaire's own row also holds the raw form answers.
+            if isinstance(row.get("response"), dict):
+                row["response"].pop(field, None)
         # Say so in the data rather than leaving the reader to infer it from an absence.
         row["public_release"] = True
         row["crops_encoded_before_release"] = bool(args.encode_crops) and crop_frames_present > 0

@@ -304,7 +304,8 @@ window.CookoffConfig = {
   questions: {
     /** Glasses or contact lenses during the session. */
     eyewear: true,
-    /** Age range and gender. Both have a "prefer not to say" option. */
-    demographics: true,
+    /** Two optional free-text questions: technical problems, and interruptions to looking at
+     *  the targets. Demographics are not asked; Prolific supplies them. */
+    self_report: true,
   },
 };

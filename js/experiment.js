@@ -1022,9 +1022,9 @@
    * between calibration and test.
    *
    * Eyewear is the covariate: glasses put reflections and a second lens edge over the eyes, and
-   * whether that costs accuracy has not been measured for saccade.js. The demographics describe
-   * the sample. Every question has a way to decline, and all are required only in the sense
-   * that one option must be picked.
+   * whether that costs accuracy has not been measured for saccade.js. It is asked here rather
+   * than taken from Prolific's profile because what matters is this session, not the person's
+   * habit. Demographics are not asked at all: Prolific supplies them, keyed on `PROLIFIC_PID`.
    */
   function endQuestions() {
     const q = config.questions;
@@ -1037,22 +1037,21 @@
         ["prefer_not", "Prefer not to say"],
       ]));
     }
-    if (q.demographics) {
-      parts.push(radios("age", "What is your age?", [
-        ["18-24", "18–24"], ["25-34", "25–34"], ["35-44", "35–44"], ["45-54", "45–54"],
-        ["55-64", "55–64"], ["65+", "65 or older"], ["prefer_not", "Prefer not to say"],
-      ]));
+    if (q.self_report) {
+      // The recording shows *that* a session went badly; these are often the only thing that
+      // says why. Technical and attentional causes are asked apart because they point to
+      // different fixes: a frozen camera is the setup, someone walking in is the session.
       parts.push(`
         <fieldset class="ck-question">
-          <legend>What is your gender?</legend>
-          <label><input type="radio" name="gender" value="woman" required> Woman</label>
-          <label><input type="radio" name="gender" value="man" required> Man</label>
-          <label><input type="radio" name="gender" value="non-binary" required> Non-binary</label>
-          <label><input type="radio" name="gender" value="self-describe" required> Prefer to
-            self-describe: <input type="text" name="gender_text" maxlength="60"
-            aria-label="Gender, in your own words"></label>
-          <label><input type="radio" name="gender" value="prefer_not" required> Prefer not to
-            say</label>
+          <legend>Did you encounter any technical problems? (optional)</legend>
+          <textarea name="technical_problems" rows="3" maxlength="1000"
+            aria-label="Technical problems"></textarea>
+        </fieldset>
+        <fieldset class="ck-question">
+          <legend>Did anything interrupt your ability to keep your eyes on the targets?
+            (optional)</legend>
+          <textarea name="interruptions" rows="3" maxlength="1000"
+            aria-label="Interruptions"></textarea>
         </fieldset>`);
     }
     if (!parts.length) return null;
@@ -1065,8 +1064,8 @@
         const r = data.response || {};
         jsPsych.data.addProperties({
           eyewear: r.eyewear ?? null,
-          age_range: r.age ?? null,
-          gender: r.gender === "self-describe" ? (r.gender_text || "self-describe") : r.gender ?? null,
+          technical_problems: q.self_report ? (r.technical_problems || "").trim() || null : null,
+          interruptions: q.self_report ? (r.interruptions || "").trim() || null : null,
         });
       },
     };

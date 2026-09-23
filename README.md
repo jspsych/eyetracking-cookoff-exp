@@ -450,7 +450,7 @@ What goes, what stays:
 | **removed** | `saccade_crop`, `crop_frames` — the raw 144x36 strip across both eyes, ~50x36 px each, a recognizable picture |
 | **kept** | `webgazer_gray_*` — 10x6 per eye, iris about three pixels across, below any recognition threshold and the actual input to WebGazer's regression |
 | **kept** | `saccade_embedding` — 128 numbers, the actual input to saccade.js's regression |
-| **optional** | `--strip head_landmarks user_agent webgpu_description` |
+| **optional** | `--strip head_landmarks head_pose user_agent webgpu_description technical_problems interruptions` |
 
 `head_landmarks` is the judgement call, and it is kept by default. Nine facial points is weak
 face geometry but real head-position data, and head position explains a lot of the accuracy

@@ -163,6 +163,19 @@ a.ck-btn {
   accent-color: var(--ck-brass);
 }
 
+.ck-question textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--ck-edge);
+  border-radius: 4px;
+  background: var(--ck-counter);
+  color: var(--ck-text);
+  font: inherit;
+  resize: vertical;
+}
+
 .ck-question input[type="text"] {
   margin-left: 0.4rem;
   padding: 0.25rem 0.5rem;
