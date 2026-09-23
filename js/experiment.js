@@ -459,7 +459,7 @@
       <h2>Camera setup</h2>
       <p>Sit facing the screen at your usual distance. Light from in front of you works best;
       a bright window behind you makes your face hard to see.</p>
-      <p>When the label next to the video says <strong>face: yes</strong>, you're set. Try to
+      <p>When the label under the video says <strong>Face found</strong>, you're set. Try to
       stay in about that position for the rest of the study.</p>`,
     button_text: "Continue",
   };
