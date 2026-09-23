@@ -62,6 +62,16 @@
     on_interaction_data_update: (event) => {
       Cookoff.interactions.push(event);
     },
+    // Task trials paint the task field over the whole viewport, and jsPsych empties the display
+    // for `post_trial_gap` between them. Without this the page background shows through in
+    // every gap: a darker flash on each of ~130 stations, which is a luminance step for the
+    // camera's auto-exposure and the participant's pupils as well as a distraction. The page
+    // takes the field's color for task trials and the gaps after them, and returns to the
+    // darker ground for the screens between blocks.
+    on_trial_start: (trial) => {
+      const task = trial.type === jsPsychCookoffCapture || trial.type === jsPsychCookoffPursuit;
+      document.documentElement.classList.toggle("ck-task", task);
+    },
   });
   // Exposed for the console: checking what the tracker and the recorder are actually doing
   // mid-session is most of debugging a webcam experiment.

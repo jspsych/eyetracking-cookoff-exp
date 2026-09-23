@@ -333,6 +333,13 @@ a.ck-btn {
   background: var(--ck-counter-lit);
 }
 
+/* The same field behind the display, so the blank between two task trials matches the trials
+   instead of dropping to the darker page ground. Toggled by `on_trial_start`. */
+html.ck-task,
+html.ck-task body {
+  background: var(--ck-counter-lit);
+}
+
 .ck-hud {
   position: fixed;
   top: 14px;
