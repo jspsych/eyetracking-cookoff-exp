@@ -362,14 +362,19 @@
        */
       const openRecorder = () => {
         captureOnset = performance.now();
-        const recordedMs =
-          trial.capture_duration + (trial.record_settle ? trial.settle_duration : 0);
         // The expected frame count sets the sampling stride when the encoder is deferred, so
-        // the frames that do get encoded are spread over the window rather than bunched at its
-        // start. A rough estimate is enough: the stride is a rate, not a quota.
+        // the frames that do get encoded are spread over the fixation window rather than
+        // bunched at its start. Only the fixation window counts: with `record_settle` the
+        // recorder holds the worker back until the settle ends (see `embedFrom` below). A
+        // rough estimate is enough: the stride is a rate, not a quota.
         recorder.beginCapture({
           stationId,
-          expectedFrames: Math.max(1, Math.round(((recorder.fps || 30) * recordedMs) / 1000)),
+          onset: captureOnset,
+          embedFrom: trial.record_settle ? null : 0,
+          expectedFrames: Math.max(
+            1,
+            Math.round(((recorder.fps || 30) * trial.capture_duration) / 1000),
+          ),
         });
       };
 
@@ -377,7 +382,12 @@
 
       later(() => {
         if (!trial.record_settle) openRecorder();
-        else settleEndedAt = performance.now() - captureOnset;
+        else {
+          settleEndedAt = performance.now() - captureOnset;
+          // The boundary `fixation_from` is computed from, handed to the recorder now so the
+          // deferred encoder spends its budget on exactly the frames the analysis keeps.
+          recorder.embedFrom(settleEndedAt);
+        }
         target.classList.add("ck-target-capturing");
 
         this.jsPsych.pluginAPI.getKeyboardResponse({

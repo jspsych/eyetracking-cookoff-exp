@@ -160,6 +160,7 @@
             wgRight: [],
             wgBox: [],
             head: [],
+            pose: [],
             ear: [],
             clockSource: "captureTime",
             nFaceMissing: 1,
@@ -180,11 +181,13 @@
             b.wgRight.push(gray);
             b.wgBox.push([352, 202, 51, 18, 243, 202, 45, 18]);
             b.head.push(new Float32Array(27).fill(0.5));
+            b.pose.push(new Float32Array(16).fill(NaN));
             b.ear.push(new Float32Array([0.28, 0.29]));
           };
           push();
           this.timer = setInterval(push, FRAME_MS);
         },
+        embedFrom() {},
         async flush() {},
         endCapture() {
           clearInterval(this.timer);

@@ -216,6 +216,16 @@ what an encode actually costs on this machine, works out how many frames per sta
 can finish, and queues an evenly spaced subset of that size. A typical wasm machine lands
 somewhere between four and a dozen frames a station instead of thirty.
 
+The subset is drawn from steady fixation only, never from the 600 ms while the eye is still
+arriving at the target. The accuracy analysis discards those arrival frames anyway, and at one
+encoded frame every ~250 ms they are far too sparse to time a 40 ms saccade: spread over the
+whole station, a budget of seven left only three or four usable frames, and saccade.js's latency
+on one pilot came out 95 ms late. So on these machines saccade.js contributes no saccade latency.
+WebGazer's features are still cut from every frame, arrival included, so latency is still
+measured in every session. The capture trial tells the recorder where fixation starts at the
+same moment it fixes `fixation_from`, so the encoder and the analysis use one boundary. Machines
+that encode inline are unaffected: every frame is embedded.
+
 Three things keep that from quietly becoming a bias:
 
 - WebGazer's features are cut for **every** frame regardless — they cost almost nothing. So the

@@ -105,6 +105,7 @@
         lastFrame: null,
         onFrame: null,
         beginCapture: DualRecorder.prototype.beginCapture,
+        embedFrom: DualRecorder.prototype.embedFrom,
         record: DualRecorder.prototype.record,
         pack: DualRecorder.prototype.pack,
       };
@@ -142,6 +143,31 @@
       // Those went into the embedder's store; clear it so the station test below is clean.
       embedder.stations.delete(99);
       embedder.queue = embedder.queue.filter((q) => q.stationId !== 99);
+
+      /*
+       * With `record_settle`, the capture trial opens the recorder with the worker held back
+       * (`embedFrom: null`) and names the fixation boundary when the settle ends. Nothing from
+       * the arrival may be queued, and the budget is spread over fixation alone.
+       */
+      const ARRIVAL = 10;
+      const FIXATION = 20;
+      const fixStride = embedder.strideFor(FIXATION);
+      fakeRecorder.beginCapture({ stationId: 98, expectedFrames: FIXATION, onset: 1000, embedFrom: null });
+      for (let i = 0; i < ARRIVAL; i++) fakeRecorder.record(fakeStage(i), null, null);
+      fakeRecorder.embedFrom(ARRIVAL * 33.3 - 1); // the settle ends just before frame ARRIVAL
+      for (let i = ARRIVAL; i < ARRIVAL + FIXATION; i++) fakeRecorder.record(fakeStage(i), null, null);
+      const settled = fakeRecorder.pack(fakeRecorder.buffer, 1000);
+      check("no frame from the arrival is queued",
+        settled.embedded_frames.every((f) => f >= ARRIVAL),
+        `[${settled.embedded_frames.join(", ")}]`);
+      check("the budget is spread over the fixation window from its first frame",
+        settled.embedded_frames.every((f, k) => f === ARRIVAL + k * fixStride) &&
+          settled.embedded_frames.length === Math.ceil(FIXATION / fixStride),
+        `stride ${fixStride}, [${settled.embedded_frames.join(", ")}]`);
+      check("WebGazer still has every frame, arrival included", settled.n_frames === ARRIVAL + FIXATION,
+        `${settled.n_frames} frames`);
+      embedder.stations.delete(98);
+      embedder.queue = embedder.queue.filter((q) => q.stationId !== 98);
 
       // A fake station: 30 frames, of which the strided subset is queued.
       const jsPsych = initJsPsych({});

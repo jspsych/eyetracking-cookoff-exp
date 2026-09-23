@@ -172,8 +172,28 @@
       stationId: opts.stationId != null ? opts.stationId : null,
       stride: this.embedder ? this.embedder.strideFor(expected) : 1,
       queued: [],
+      // Deferred only: frames captured before this offset (ms from `onset`, the capture clock
+      // the trial's frame_t is measured on) are never sent to the worker. `embedFrom: null`
+      // holds everything back until `embedFrom()` names the offset.
+      onset: opts.onset != null ? opts.onset : performance.now(),
+      embedFrom: opts.embedFrom === undefined ? 0 : opts.embedFrom,
+      eligible: 0,
     };
     return this.buffer;
+  };
+
+  /**
+   * Start sending frames to the worker from `offsetMs` after the capture onset.
+   *
+   * On a machine without WebGPU only a few frames a station can be encoded, and the ones
+   * captured while the eye is still travelling to the target are thrown away by the accuracy
+   * analysis — and at one frame every ~250 ms they are far too sparse to time a 40 ms saccade.
+   * So the budget is spent on steady fixation only. The capture trial calls this at the same
+   * moment it fixes `fixation_from`, so the two use one boundary. A no-op on the inline path,
+   * which embeds every frame.
+   */
+  DualRecorder.prototype.embedFrom = function (offsetMs) {
+    if (this.buffer) this.buffer.embedFrom = offsetMs;
   };
 
   DualRecorder.prototype.endCapture = function () {
@@ -420,10 +440,15 @@
     buffer.t.push(stage.time.capture);
 
     if (this.embedder) {
-      // Every `stride`-th frame goes to the worker. The rest keep their WebGazer features and
-      // their timestamp and simply have no embedding — `embedded_frames` records which is
-      // which, so an analysis can line the two trackers up on the frames both have.
-      if (frameIndex % buffer.stride === 0) {
+      // Every `stride`-th frame of the fixation window goes to the worker, counted from the
+      // first one, so the budget is spread evenly over steady fixation. The rest keep their
+      // WebGazer features and their timestamp and simply have no embedding — `embedded_frames`
+      // records which is which, so an analysis can line the two trackers up on the frames
+      // both have.
+      const inFixation =
+        buffer.embedFrom === 0 ||
+        (buffer.embedFrom !== null && stage.time.capture - buffer.onset >= buffer.embedFrom);
+      if (inFixation && buffer.eligible++ % buffer.stride === 0) {
         buffer.queued.push(frameIndex);
         this.embedder.submit(buffer.stationId, frameIndex, stage.crop);
       }
@@ -444,7 +469,7 @@
       stage.wg.boxes.right.height,
     ]);
     buffer.head.push(stage.head);
-    buffer.pose.push(stage.pose);
+    buffer.pose.push(stage.pose || NO_POSE);
     buffer.ear.push(stage.ear);
   };
 
