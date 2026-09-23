@@ -131,8 +131,14 @@ window.CookoffConfig = {
     probe_window: [300, 700],
     response_deadline: 1000,
     response_key: " ",
-    /** Gap between targets, in ms. */
-    station_gap: 150,
+    /**
+     * Blank time between one target leaving and the next appearing, in ms.
+     *
+     * Zero, so each station is a plain step: the new target appears while the eye is still on
+     * the old one. A blank before the target shortens saccade latencies (the gap effect), which
+     * would make the latencies `saccades.py` measures incomparable with step-task norms.
+     */
+    station_gap: 0,
   },
 
   /**
