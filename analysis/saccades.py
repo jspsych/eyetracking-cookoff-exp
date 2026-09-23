@@ -165,7 +165,17 @@ def main() -> None:
 
     print("\ntime from the target appearing to the eye being halfway across")
     print(f"{'tracker':<10} {'n':>4} {'raw':>10} {'minus loopback':>15}   interpretation")
+    # Without WebGPU the encoder is deferred and budgeted: a handful of frames a station, one
+    # every ~250 ms. That cannot time a 40 ms saccade -- the crossing lands late, by ~95 ms on
+    # one pilot -- and since the budget moved to fixation there are no arrival frames at all.
+    # WebGazer's features are cut from every frame on every machine, so it still has latency.
+    deferred = session.get("encoder_mode") == "deferred"
     for tracker in TRACKERS:
+        if tracker == "saccade" and deferred:
+            print(f"{tracker:<10} {'—':>4}  not measured: without WebGPU saccade.js encodes only a few "
+                  f"fixation frames a station,\n{'':16}too sparse to time a saccade. WebGazer "
+                  f"below uses every frame.")
+            continue
         latencies, amplitudes = [], []
         for a in arrivals:
             if tracker == "saccade":
