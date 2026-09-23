@@ -107,7 +107,8 @@
       console.error("cook-off: not configured for collection:", missing);
       document.getElementById("jspsych-target").innerHTML = `<div class="ck-card">
         <h1>This study is not open yet</h1>
-        <p>Please return it on Prolific. Nothing has been recorded.</p></div>`;
+        <p>Sorry for the trouble. Please return the study on Prolific. Nothing has been
+        recorded.</p></div>`;
       return;
     }
   }
@@ -201,7 +202,7 @@
     const code = config.prolific.screenout_code;
     const next = code
       ? `<p><a class="ck-btn" href="${prolificUrl(code)}">Return to Prolific</a></p>`
-      : `<p>Please return the study on Prolific. Nothing further is needed from you.</p>`;
+      : `<p>Please return the study on Prolific. There is nothing else you need to do.</p>`;
     CookoffSave.saveSession(jsPsych, { ...config.save, attempts: 1 }, { prefix: "screenout" })
       .finally(() => {
         const slot = document.getElementById("ck-screenout-next");
@@ -211,12 +212,12 @@
 
   const welcome = screen(
     "Eye tracking study",
-    `<p>This study measures where you look while targets appear on the screen. It takes about
-     ${config.intro_minutes} minutes.</p>
-     <p>Your webcam runs throughout. No video is recorded or sent — only numerical measurements
-     taken from each frame.</p>
-     <p>You will need to hold still once it starts, so get comfortable first — and stay off
-     the keyboard and mouse except when the task asks for a key.</p>`,
+    `<p>In this study, targets will appear on the screen and we will measure where you look.
+     It takes about ${config.intro_minutes} minutes.</p>
+     <p>Your webcam stays on throughout. No video is recorded or sent — only numerical
+     measurements taken from each frame.</p>
+     <p>Before you begin, please find a comfortable position you can hold for a while. During
+     the study you will only need the space bar, so you can leave the mouse alone.</p>`,
     "Begin",
   );
 
@@ -263,8 +264,8 @@
   const keyboardGate = {
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `<div class="ck-card">
-      <h1>One quick check</h1>
-      <p>This study needs a physical keyboard, so it cannot be done on a phone or tablet.</p>
+      <h1>A quick check</h1>
+      <p>This study uses a physical keyboard, so it can't be done on a phone or tablet.</p>
       <p><strong>Press the space bar to continue.</strong></p>
     </div>`,
     choices: [" "],
@@ -277,8 +278,8 @@
         return screenOut(
           "no_keyboard",
           "Sorry — this study needs a keyboard",
-          `<p>No key press was detected, so this device probably cannot run the task.</p>
-           <p>If you do have a keyboard and simply missed the prompt, reload the page to try
+          `<p>We didn't detect a key press, so this device may not be able to run the study.</p>
+           <p>If you do have a keyboard and just missed the prompt, reload the page to try
            again.</p>`,
         );
       }
@@ -364,7 +365,8 @@
     type: jsPsychFullscreen,
     fullscreen_mode: true,
     message: `<div class="ck-card"><h1>Fullscreen</h1>
-      <p>The study runs fullscreen so that the display does not change size part-way through.</p>
+      <p>The study runs in fullscreen, so the screen stays the same size from start to
+      finish.</p>
       <p>Please stay in fullscreen until the end. If you leave it by accident, press
       <kbd>F11</kbd> (or <kbd>&#8963;&#8984;F</kbd> on a Mac) to go back.</p></div>`,
     button_label: "Enter fullscreen",
@@ -383,7 +385,8 @@
   const cameraPermission = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `<div class="ck-card"><h1>Camera</h1>
-      <p>Next, your browser will ask to use your camera. Please choose <strong>Allow</strong>.</p>
+      <p>When you continue, your browser will ask for permission to use your camera. Please
+      choose <strong>Allow</strong>.</p>
       <p class="ck-status" id="ck-camera-status"></p></div>`,
     choices: ["Continue"],
     button_html: (choice) => `<button class="ck-btn" id="ck-camera-go">${choice}</button>`,
@@ -429,7 +432,7 @@
         return screenOut(
           "no_camera",
           "Sorry — the camera did not start",
-          `<p>This study cannot run without a working camera.</p>`,
+          `<p>The study needs a working camera, and we couldn't start yours.</p>`,
         );
       }
     },
@@ -446,18 +449,18 @@
         return screenOut(
           "no_face",
           "Sorry — the camera could not find your face",
-          `<p>The eye tracker needs to see your face clearly, and it could not.</p>
-           <p>Better light from in front of you sometimes helps: if you would like to try again,
-           reload the page.</p>`,
+          `<p>The eye tracker needs a clear view of your face, and it couldn't find one.</p>
+           <p>Light from in front of you often helps. If you'd like to try again, reload the
+           page.</p>`,
         );
       }
     },
     instructions: `
       <h2>Camera setup</h2>
-      <p>Sit facing the screen at your normal working distance, with your face lit from the
-      front rather than from behind.</p>
-      <p>Check that your face is found in the preview below, then stay in that position for the
-      rest of the study.</p>`,
+      <p>Sit facing the screen at your usual distance. Light from in front of you works best;
+      a bright window behind you makes your face hard to see.</p>
+      <p>When the label next to the video says <strong>face: yes</strong>, you're set. Try to
+      stay in about that position for the rest of the study.</p>`,
     button_text: "Continue",
   };
 
@@ -487,7 +490,7 @@
     stimulus: `
       <div class="ck-card">
         <h1>Checking your setup</h1>
-        <p>Look at the dot and hold still for a few seconds.</p>
+        <p>Please look at the dot and hold still for a few seconds.</p>
         <div class="ck-center-dot"></div>
       </div>`,
     on_finish: (data) => {
@@ -513,12 +516,13 @@
     apply_offset: true,
     instructions: `
       <h2>Camera timing check</h2>
-      <p>This measures how quickly your webcam reacts to the screen, which is different on every
-      computer and has to be measured on yours.</p>
-      <p>For about fifteen seconds the whole screen will change between dark and light at random
-      moments while the camera watches.</p>
-      <p><strong>This is not a flashing display</strong> — it changes at most once per second.</p>
-      <p>Sit still and keep looking at the screen until it finishes.</p>`,
+      <p>Next we'll measure how quickly your webcam responds to changes on the screen. This
+      differs from computer to computer, so we measure it on yours.</p>
+      <p>For about fifteen seconds, the whole screen will switch between dark and light at
+      random moments while the camera watches.</p>
+      <p><strong>This is not a flashing display.</strong> The screen changes at most twice a
+      second.</p>
+      <p>Please sit still and keep looking at the screen until it finishes.</p>`,
     button_text: "Continue",
     on_finish: (data) => {
       // Recorded once at the top level too: every frame time in the session is on the camera
@@ -577,7 +581,7 @@
       };
     }
 
-    status.textContent = "This machine has no fast graphics path — moving the encoder off the main thread…";
+    status.textContent = "Your computer needs a little longer to get ready. This can take a minute…";
     const embedder = new DeferredEmbedder({
       workerUrl: "js/embed-worker.js",
       modelUrl: new URL(config.assets.modelUrl, window.location.href).href,
@@ -633,7 +637,7 @@
       stimulus: `
         <div class="ck-card">
           <h1>${heading}</h1>
-          <p class="ck-status" id="ck-drain-status">Finishing the prep…</p>
+          <p class="ck-status" id="ck-drain-status">Finishing up…</p>
           <div class="ck-bar"><div id="ck-drain-fill"></div></div>
         </div>`,
       choices: "NO_KEYS",
@@ -645,7 +649,7 @@
         const fill = document.getElementById("ck-drain-fill");
         const result = await embedder.drain(deadlineMs, (left, total) => {
           if (fill) fill.style.width = `${Math.round((1 - left / Math.max(1, total)) * 100)}%`;
-          if (status) status.textContent = `Finishing the prep… ${left} left`;
+          if (status) status.textContent = `Finishing up… (${left} left)`;
         });
         jsPsych.finishTrial({ drained: result.left === 0, left_queued: result.left });
       },
@@ -665,7 +669,7 @@
     stimulus: `
       <div class="ck-card">
         <h1>Getting ready</h1>
-        <p class="ck-status" id="ck-warmup-status">Starting up…</p>
+        <p class="ck-status" id="ck-warmup-status">Starting up. This takes a few seconds…</p>
       </div>`,
     choices: "NO_KEYS",
     trial_duration: null,
@@ -686,7 +690,7 @@
           model: Cookoff.model,
           assets: config.assets,
         });
-        status.textContent = "Loading the second face mesh…";
+        status.textContent = "Loading…";
         await recorder.init();
 
         /*
@@ -712,7 +716,7 @@
          */
         const ridgeUs = CookoffCapability.measureRidgePredict(recorder.embeddingDim);
 
-        status.textContent = "Checking the line speed…";
+        status.textContent = "Almost ready…";
         Cookoff.recorder = recorder;
         recorder.start();
         await new Promise((resolve) => setTimeout(resolve, WARMUP_MS));
@@ -727,16 +731,17 @@
           warmup_camera_dropped: recorder.stats.dropped,
         });
 
-        status.textContent = `Ready — ${Math.round(recorder.fps)} frames per second.`;
+        status.textContent = "Ready.";
         setTimeout(() => jsPsych.finishTrial({}), 700);
       } catch (error) {
         // Without a recorder every station afterwards would throw one at a time, leaving the
         // participant clicking through a broken experiment. Stop here and say so.
         console.error(error);
-        status.innerHTML = `<span class="ck-ember">Setup failed.</span><br>
-          ${error && error.message ? error.message : error}<br><br>
-          Check that the camera is allowed and reload the page. If it keeps happening, please
-          tell the researcher before closing this tab.`;
+        status.innerHTML = `<span class="ck-ember">Something went wrong while getting
+          ready.</span><br><br>
+          Please check that the camera is allowed, then reload the page. If this keeps happening,
+          please send the researcher a message through Prolific.<br><br>
+          <small>${error && error.message ? error.message : error}</small>`;
         jsPsych.data.addProperties({ warmup_error: String(error && error.message) });
       }
     },
@@ -744,12 +749,12 @@
 
   const howToPlay = screen(
     "What to do",
-    `<p>A target will appear somewhere on the screen. <strong>Look at its center</strong> and keep
-     your eyes there until it disappears. Then the next one appears.</p>
-     <p>Sometimes the small dot in the center turns <span class="ck-ember">orange</span>. When it
-     does, press <kbd>space</kbd>.</p>
-     <p>Keep your head still throughout.</p>
-     <p>A short practice block first.</p>`,
+    `<p>A target will appear on the screen. <strong>Look at its center</strong> and keep your
+     eyes there. When it jumps to a new place, follow it with your eyes.</p>
+     <p>Now and then, the small dot in the center will turn <span class="ck-ember">orange</span>.
+     When it does, press <kbd>space</kbd>.</p>
+     <p>Please keep your head as still as you can, and move only your eyes.</p>
+     <p>You'll start with a short practice round.</p>`,
     "Start practice",
   );
 
@@ -937,12 +942,12 @@
 
   const movingTargetIntro = keyboardScreen(
     () => `Block ${config.design.n_blocks + 1} of ${totalBlocks()}`,
-    `<p>This time a single target <strong>moves in a loop around the screen</strong>. Follow it
-     with your eyes the whole way.</p>
-     <p>Try to track it smoothly rather than jumping ahead to where it is going.</p>
+    `<p>This time, one target will <strong>move in a loop around the screen</strong>. Follow it
+     with your eyes the whole way around.</p>
+     <p>Try to follow it smoothly, staying with the target rather than looking ahead of it.</p>
      <p>As before, press <kbd>space</kbd> if its center turns
      <span class="ck-ember">orange</span>.</p>
-     <p>About half a minute. This is the last one.</p>`,
+     <p>This is the last block, and it takes about half a minute.</p>`,
   );
 
   /** Between blocks: how the color-change task went. Advanced with the space bar. */
@@ -955,7 +960,9 @@
           .filter({ trial_type: "cookoff-capture", block: blockIndex, practice: false });
         const probes = rows.filter({ probe: true });
         const hits = probes.filter({ probe_outcome: "hit" }).count();
-        return `<p>You spotted <strong>${hits} of ${probes.count()}</strong> color changes.</p>`;
+        return `<p>You spotted <strong>${hits} of ${probes.count()}</strong> color changes.</p>
+          <p>Feel free to take a short break. When you're ready, settle back into the same
+          position.</p>`;
       },
     );
   }
@@ -1048,8 +1055,8 @@
     timeline.push({
       ...keyboardScreen(
         `Block ${block + 1} of ${totalBlocks()}`,
-        `<p>${blockStations[block].length} targets. Look at the center of each one, and press
-         <kbd>space</kbd> if it turns orange.</p>`,
+        `<p>This block has ${blockStations[block].length} targets. As before, look at the center
+         of each one, and press <kbd>space</kbd> if it turns orange.</p>`,
       ),
       // Between blocks the eye was on this text, not on the last target, so the next station
       // has no saccade origin worth recording.
@@ -1073,7 +1080,8 @@
   timeline.push({
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `<div class="ck-card"><h1>Saving</h1>
-      <p class="ck-status" id="ck-save-status">Boxing up the data…</p></div>`,
+      <p class="ck-status" id="ck-save-status">Saving your data. Please don't close this
+      tab…</p></div>`,
     choices: "NO_KEYS",
     on_load: async () => {
       Cookoff.recorder?.stop();
@@ -1085,7 +1093,7 @@
       if (Cookoff.embedder) {
         const status = document.getElementById("ck-save-status");
         const left = await Cookoff.embedder.drain(config.encoder.drain_ms_at_end, (n, total) => {
-          if (status && n > 0) status.textContent = `Finishing the prep… ${n} of ${total} left`;
+          if (status && n > 0) status.textContent = `Finishing up… (${n} of ${total} left)`;
         });
         embedSummary = Cookoff.embedder.finalize(jsPsych, config.privacy.save_eye_crops);
         embedSummary.timedOut = left.timedOut;
@@ -1107,10 +1115,10 @@
       });
 
       const status = document.getElementById("ck-save-status");
-      status.textContent = "Uploading…";
+      status.textContent = "Uploading your data. Please don't close this tab…";
       const result = await CookoffSave.saveSession(jsPsych, config.save, {
         onRetry: (attempt) => {
-          status.textContent = `The upload did not go through. Trying again (${attempt + 1} of ${config.save.attempts})…`;
+          status.textContent = `The upload didn't go through. Trying again (attempt ${attempt + 1} of ${config.save.attempts})…`;
         },
       });
       const { json, ...summary } = result;
@@ -1125,9 +1133,11 @@
       // rather than lose it: they can send the file through Prolific's messages. The session
       // still counts as complete -- the failure is ours, not theirs.
       status.innerHTML = `
-        <span class="ck-ember">The upload failed (${result.error}).</span>
-        <p>Please save your data file with the button below, then send it to the researcher
-        through Prolific's messages. You will still be paid.</p>
+        <span class="ck-ember">We couldn't upload your data.</span>
+        <p>This is a problem on our end, not yours, and you will still be paid. Please save your
+        data file with the button below, then send it to the researcher in a Prolific
+        message.</p>
+        <p><small>(${result.error})</small></p>
         <p><button class="ck-btn" id="ck-save-download">Save data file</button></p>
         <p><button class="ck-btn" id="ck-save-continue" disabled>Continue</button></p>`;
       const cont = document.getElementById("ck-save-continue");
@@ -1149,7 +1159,7 @@
     stimulus: `
       <div class="ck-card">
         <h1>Finished</h1>
-        <p>That is everything. Thank you for taking part.</p>
+        <p>That's everything. Thank you for taking part!</p>
         <p>${completion ? "Click below to return to Prolific and complete the study."
                         : "You can close this tab."}</p>
       </div>`,
