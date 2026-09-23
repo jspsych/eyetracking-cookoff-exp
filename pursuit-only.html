@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pursuit only — diagnostic build</title>
+
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-browser-check@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0"></script>
+    <link rel="stylesheet" href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" />
+
+    <script src="lib/saccade/core.js"></script>
+    <script src="lib/saccade/extension.js"></script>
+    <script src="lib/saccade/plugin-preview.js"></script>
+    <script src="lib/saccade/plugin-performance.js"></script>
+    <script src="lib/saccade/plugin-time-sync.js"></script>
+
+    <link rel="stylesheet" href="css/cookoff.css" />
+  </head>
+
+  <body>
+    <div id="jspsych-target"></div>
+
+    <script src="js/config.js"></script>
+
+    <script>
+      /*
+       * A short build for working on the moving-target block.
+       *
+       * Not a pursuit-only session, because there is no such thing that can be analyzed. Both
+       * trackers are *calibrated on stationary targets* — that is how each of them is meant to
+       * be used, and it is why the moving target is a clean test set. Strip the static block out
+       * and `pursuit.py` has nothing to fit a kernel from, so the recording cannot be turned
+       * into gaze at all.
+       *
+       * So this keeps the shortest path to an analyzable file and drops everything else:
+       *
+       *   kept     camera preview        the model has to load and a face has to be found
+       *            time sync             `pursuit.py` subtracts `timing_lag_ms`; without it the
+       *                                  whole point of the block is missing
+       *            recorder warm-up      decides inline vs deferred encoding
+       *            one 13-point block    the calibration, and the smallest set that fits a
+       *                                  128-d ridge without the penalty doing all the work
+       *            the pursuit runs      what this build exists for
+       *
+       *   dropped  browser check, camera question, keyboard gate — screening, not measurement
+       *            the frame-rate check  6 s that tells you nothing new on a machine you own
+       *            practice              the operator has done this before
+       *            two of three blocks   one is enough to calibrate; three are for the
+       *                                  cross-validation this build is not running
+       *
+       * About two minutes once the 20 MB model is cached. Fullscreen stays on: the ellipse is
+       * sized from the viewport, so testing it in a window tests different geometry.
+       *
+       * Everything below only rewrites config. There is no second copy of the experiment to
+       * drift out of step with the real one.
+       */
+      const C = window.CookoffConfig;
+
+      C.screening.browser_check = false;
+      C.screening.camera_question = false;
+      C.screening.keyboard_gate = false;
+      C.performance_check = false;
+      C.design.n_practice = 0;
+      C.design.n_blocks = 1;
+      C.intro_minutes = 2;
+      C.questions.eyewear = false;
+      C.questions.demographics = false;
+
+      // The 13-point calibration grid on its own. The test points exist to be held out, and
+      // nothing is being held out here.
+      C.points.grid = 13;
+      C.points.validation = false;
+      C.points.n_random = 0;
+
+      // Distinct prefix so a diagnostic file is never mistaken for a real session.
+      C.save.filename_prefix = "pursuit-only";
+    </script>
+
+    <script src="js/capability.js"></script>
+    <script src="js/encoding.js"></script>
+    <script src="js/webgazer-features.js"></script>
+    <script src="js/deferred-embedder.js"></script>
+    <script src="js/dual-recorder.js"></script>
+    <script src="js/plugin-cookoff-capture.js"></script>
+    <script src="js/plugin-cookoff-pursuit.js"></script>
+    <script src="js/save.js"></script>
+    <script src="js/experiment.js"></script>
+  </body>
+</html>

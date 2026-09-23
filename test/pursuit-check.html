@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>pursuit check</title>
+<script src="https://unpkg.com/jspsych@8.2.3"></script>
+<link rel="stylesheet" href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" />
+<link rel="stylesheet" href="../css/cookoff.css" />
+<style>
+  #report {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    overflow: auto;
+    padding: 2rem;
+    background: #16181c;
+    color: #e8e3d9;
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+  }
+</style>
+
+</head>
+<body>
+<div id="jspsych-target"></div>
+<pre id="report">running…</pre>
+
+<script src="../js/encoding.js"></script>
+<script src="../js/webgazer-features.js"></script>
+<script src="../js/plugin-cookoff-capture.js"></script>
+<script src="../js/plugin-cookoff-pursuit.js"></script>
+<script>
+  /*
+   * The pursuit trial on a virtual clock.
+   *
+   * Same reasoning as trial-check: the whole trial is timing, and a backgrounded tab throttles
+   * timers to ~1 Hz and stops `requestAnimationFrame` entirely — which would not merely slow
+   * this test down, it would stop the target ever moving. So setTimeout, requestAnimationFrame
+   * and performance.now are all driven from a queue this file advances by hand, at a fixed
+   * 60 Hz for animation frames.
+   *
+   * What that buys: the target path is then *exactly* reproducible, so the checks can assert on
+   * the geometry the analysis depends on — that the steady stretch runs at the requested speed,
+   * that direction alternates, that the logged path and the recorded frames share a clock.
+   */
+
+  let now = 0;
+  let seq = 0;
+  let queue = [];
+  const RAF_MS = 1000 / 60;
+
+  performance.now = () => now;
+  window.setTimeout = (fn, delay) => {
+    const id = ++seq;
+    queue.push({ id, at: now + Math.max(0, delay || 0), fn, every: null });
+    return id;
+  };
+  window.setInterval = (fn, delay) => {
+    const id = ++seq;
+    const every = Math.max(1, delay || 1);
+    queue.push({ id, at: now + every, fn, every });
+    return id;
+  };
+  window.clearTimeout = window.clearInterval = (id) => {
+    queue = queue.filter((t) => t.id !== id);
+  };
+  // rAF is a timer like any other here, firing on a fixed 60 Hz grid and handing the callback
+  // the virtual clock — which is what the plugin stamps its path with.
+  window.requestAnimationFrame = (fn) => {
+    const id = ++seq;
+    queue.push({ id, at: now + RAF_MS, fn: () => fn(now), every: null });
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => {
+    queue = queue.filter((t) => t.id !== id);
+  };
+
+  const channel = new MessageChannel();
+  const macroYield = () =>
+    new Promise((resolve) => {
+      channel.port1.onmessage = () => resolve();
+      channel.port2.postMessage(0);
+    });
+
+  async function advanceTo(until) {
+    let idle = 0;
+    for (let guard = 0; guard < 500000; guard++) {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      const due = queue.filter((t) => t.at <= until).sort((a, b) => a.at - b.at || a.id - b.id)[0];
+      if (!due) {
+        if (++idle > 200) break;
+        await macroYield();
+        continue;
+      }
+      idle = 0;
+      now = due.at;
+      if (due.every) due.at = now + due.every;
+      else queue = queue.filter((t) => t !== due);
+      due.fn();
+    }
+    now = Math.max(now, until);
+  }
+
+  // ------------------------------------------------------------------ stub recorder
+
+  const EMB_DIM = 128;
+  const CAMERA_MS = 1000 / 30;
+
+  const stub = {
+    fps: 30,
+    buffer: null,
+    timer: null,
+    embeddingDim: EMB_DIM,
+    embedder: null,
+    beginCapture: window.DualRecorder ? null : null,
+    endCapture() {
+      clearInterval(this.timer);
+      const b = this.buffer;
+      this.buffer = null;
+      return b;
+    },
+    async flush() {},
+  };
+  stub.beginCapture = function (options) {
+    this.lastOptions = options;
+    this.buffer = {
+      t0: performance.now(),
+      t: [],
+      embedding: [],
+      weight: [],
+      wgLeft: [],
+      wgRight: [],
+      wgBox: [],
+      head: [],
+      ear: [],
+      clockSource: "captureTime",
+      nFaceMissing: 0,
+      nDropped: 0,
+      nSkipped: 0,
+      stationId: options && options.stationId,
+      stride: 1,
+      queued: [],
+    };
+    const push = () => {
+      const b = this.buffer;
+      if (!b) return;
+      b.t.push(performance.now());
+      b.embedding.push(new Float32Array(EMB_DIM));
+      b.weight.push([0.9]);
+      b.wgLeft.push(new Uint8ClampedArray(60));
+      b.wgRight.push(new Uint8ClampedArray(60));
+      b.wgBox.push([352, 202, 51, 18, 243, 202, 45, 18]);
+      b.head.push(new Float32Array(27));
+      b.ear.push(new Float32Array(2));
+    };
+    push();
+    this.timer = setInterval(push, CAMERA_MS);
+  };
+  stub.pack = function (buffer, trialStart) {
+    const E = window.CookoffEncoding;
+    return {
+      n_frames: buffer.t.length,
+      frame_t: buffer.t.map((t) => Math.round((t - trialStart) * 10) / 10),
+      clock_source: buffer.clockSource,
+      n_face_missing: buffer.nFaceMissing,
+      n_camera_dropped: buffer.nDropped,
+      n_skipped: buffer.nSkipped,
+      embedded_frames: null,
+      crop_frames: null,
+      saccade_crop: null,
+      saccade_embedding: E.encodeF16Rows(buffer.embedding, EMB_DIM),
+      saccade_weight: E.encodeF16Rows(buffer.weight, 1),
+      webgazer_gray_left: E.encodeU8Rows(buffer.wgLeft, 60),
+      webgazer_gray_right: E.encodeU8Rows(buffer.wgRight, 60),
+      webgazer_eye_box: E.encodeI16Rows(buffer.wgBox, 8),
+      head_landmarks: E.encodeF16Rows(buffer.head, 27),
+      eye_aspect_ratio: E.encodeF16Rows(buffer.ear, 2),
+    };
+  };
+  window.Cookoff = { recorder: stub };
+
+  // ------------------------------------------------------------------ the run
+
+  const jsPsych = initJsPsych({ display_element: "jspsych-target", on_finish: report });
+  const SPEEDS = [300, 850];
+  const MARGIN = 0.1;
+  const MARGIN_Y = 0.12;
+  const CYCLES = 2;
+
+  const timeline = SPEEDS.map((speed, i) => ({
+    type: jsPsychCookoffPursuit,
+    speed,
+    cycles: CYCLES,
+    margin: MARGIN,
+    margin_y: MARGIN_Y,
+    ramp_duration: 400,
+    lead_in: 300,
+    direction: i % 2 === 0 ? 1 : -1,
+    condition: speed === 300 ? "slow" : "fast",
+    probe: i === 0,
+    block: 100,
+    index_in_block: i,
+    block_length: SPEEDS.length,
+  }));
+
+  function report() {
+    const E = window.CookoffEncoding;
+    const rows = jsPsych.data.get().filter({ trial_type: "cookoff-pursuit" }).values();
+    const lines = [];
+    let failures = 0;
+    const check = (name, ok, detail) => {
+      if (!ok) failures++;
+      lines.push(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
+    };
+
+    check("both runs completed", rows.length === SPEEDS.length, `${rows.length}`);
+
+    for (const [i, row] of rows.entries()) {
+      const path = E.decodeU8(row.target_path, 6); // int16 x3 -> 6 bytes a row
+      const raw = E.base64ToBytes(row.target_path);
+      const view = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
+      const P = [];
+      for (let k = 0; k < view.length; k += 3) P.push([view[k], view[k + 1], view[k + 2]]);
+
+      const W = row.viewport_width;
+      const H = row.viewport_height;
+      const a = Math.round(((1 - 2 * MARGIN) * W) / 2);
+      const b = Math.round(((1 - 2 * MARGIN_Y) * H) / 2);
+      const cx = Math.round(W / 2);
+      const cy = Math.round(H / 2);
+      const label = `${row.condition} (${row.speed} px/s)`;
+
+      check(`${label}: the path was logged`, P.length > 30 && P.length === row.path_frames,
+        `${P.length} animation frames`);
+      check(`${label}: path timestamps run forward from 0`,
+        P[0][0] === 0 && P.every((p, k) => k === 0 || p[0] > P[k - 1][0]),
+        `${P[0][0]} … ${P[P.length - 1][0]} ms`);
+      check(`${label}: the animation ran at 60 Hz`,
+        Math.abs(row.raf_period_ms - RAF_MS) < 1.2, `${row.raf_period_ms} ms per frame`);
+
+      /* Every logged point has to lie on the ellipse. This is the assertion that would have
+         caught a wrong semi-axis, a swapped sin/cos, or a phase that drifts: a point that
+         satisfies (x-cx)^2/a^2 + (y-cy)^2/b^2 = 1 is on it, and nothing else is. */
+      const onEllipse = P.map(([, x, y]) =>
+        Math.abs(((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 - 1));
+      check(`${label}: every point lies on the ellipse`,
+        Math.max(...onEllipse) < 0.02,
+        `worst deviation ${Math.max(...onEllipse).toFixed(4)} (0 = exactly on it)`);
+
+      // It has to be an ellipse, not a circle squeezed into the short side.
+      const xs = P.map((p) => p[1]);
+      const ys = P.map((p) => p[2]);
+      check(`${label}: it uses the shape of the screen`,
+        Math.abs((Math.max(...xs) - Math.min(...xs)) / 2 - a) <= 2 &&
+          Math.abs((Math.max(...ys) - Math.min(...ys)) / 2 - b) <= 2,
+        `x semi-axis ${((Math.max(...xs) - Math.min(...xs)) / 2).toFixed(0)} (want ${a}), ` +
+          `y ${((Math.max(...ys) - Math.min(...ys)) / 2).toFixed(0)} (want ${b})`);
+
+      // Starts at the top, where it waited through the lead-in.
+      check(`${label}: starts at the top of the ellipse`,
+        Math.abs(P[0][1] - cx) <= 2 && Math.abs(P[0][2] - (cy - b)) <= 2,
+        `(${P[0][1]}, ${P[0][2]}) vs (${cx}, ${cy - b})`);
+
+      /* Direction: the sign of the cross product of successive position deltas about the
+         center is constant for a closed path going one way round, and `direction` picks it. */
+      const angleAt = (p) => Math.atan2(p[2] - cy, p[1] - cx);
+      let wound = 0;
+      for (let k = 1; k < P.length; k++) {
+        let d = angleAt(P[k]) - angleAt(P[k - 1]);
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        wound += d;
+      }
+      const turns = wound / (2 * Math.PI);
+      check(`${label}: completes ${CYCLES} circuits the requested way`,
+        Math.abs(Math.abs(turns) - CYCLES) < 0.03 && Math.sign(turns) === Math.sign(row.direction),
+        `${turns.toFixed(3)} turns, direction ${row.direction}`);
+
+      /* The mean tangential speed must be the speed that was asked for — it is the number the
+         analysis divides a tangential error by to get milliseconds. Measured over a 10-frame
+         baseline because the path is stored as whole pixels and whole milliseconds. */
+      const SPAN = 10;
+      const v = [];
+      for (let k = SPAN; k < P.length; k++) {
+        const dt = P[k][0] - P[k - SPAN][0];
+        if (dt > 0) {
+          v.push((Math.hypot(P[k][1] - P[k - SPAN][1], P[k][2] - P[k - SPAN][2]) / dt) * 1000);
+        }
+      }
+      const sorted = v.slice().sort((p, q) => p - q);
+      const mid = sorted.slice(Math.floor(sorted.length * 0.2), Math.ceil(sorted.length * 0.8));
+      const mean = mid.reduce((p, q) => p + q, 0) / mid.length;
+      check(`${label}: mean tangential speed is what was requested`,
+        Math.abs(mean - row.speed) / row.speed < 0.12,
+        `${mean.toFixed(0)} px/s over the steady part, asked for ${row.speed}`);
+
+      check(`${label}: gaze frames span the same window as the path`,
+        row.n_frames > 10 &&
+          row.frame_t[0] >= 0 &&
+          row.frame_t[row.n_frames - 1] <= P[P.length - 1][0] + 2 * CAMERA_MS,
+        `${row.n_frames} gaze frames over ${row.frame_t[row.n_frames - 1]} ms, path ends ${P[P.length - 1][0]} ms`);
+
+      check(`${label}: every gaze stream is ${row.n_frames} long`,
+        E.decodeF16(row.saccade_embedding, EMB_DIM).length === row.n_frames &&
+          E.decodeU8(row.webgazer_gray_left, 60).length === row.n_frames);
+    }
+
+    check("the color change was recorded on the probed run",
+      rows[0].probe === true && rows[0].probe_onset !== null &&
+        rows[1].probe === false && rows[1].probe_onset === null,
+      `probe at ${rows[0].probe_onset} ms`);
+    check("station ids do not collide with the capture plugin's",
+      rows[0].station_id !== rows[1].station_id);
+
+    const bytes = JSON.stringify(rows).length;
+    lines.push(`\n${rows.length} runs serialise to ${(bytes / 1024).toFixed(1)} KB of JSON`);
+    lines.unshift(failures === 0 ? `${lines.length} checks passed\n` : `${failures} CHECK(S) FAILED\n`);
+    document.getElementById("report").textContent = lines.join("\n");
+    window.pursuitCheck = { failures, lines };
+  }
+
+  (async () => {
+    jsPsych.run(timeline);
+    await advanceTo(90000);
+  })().catch((err) => {
+    document.getElementById("report").textContent = "the run threw:\n" + (err && err.stack);
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eye tracking study</title>
+
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-browser-check@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0"></script>
+    <link rel="stylesheet" href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" />
+
+    <!-- saccade.js, from local builds: scripts/sync-saccade.sh copies these out of the
+         monorepo. Core must load before the extension and the plugins, which look for it. -->
+    <script src="lib/saccade/core.js"></script>
+    <script src="lib/saccade/extension.js"></script>
+    <script src="lib/saccade/plugin-preview.js"></script>
+    <script src="lib/saccade/plugin-performance.js"></script>
+    <script src="lib/saccade/plugin-time-sync.js"></script>
+
+    <link rel="stylesheet" href="css/cookoff.css" />
+  </head>
+
+  <body>
+    <div id="jspsych-target"></div>
+
+    <script src="js/config.js"></script>
+    <script src="js/capability.js"></script>
+    <script src="js/encoding.js"></script>
+    <script src="js/webgazer-features.js"></script>
+    <script src="js/deferred-embedder.js"></script>
+    <script src="js/dual-recorder.js"></script>
+    <script src="js/plugin-cookoff-capture.js"></script>
+    <script src="js/plugin-cookoff-pursuit.js"></script>
+    <script src="js/save.js"></script>
+    <script src="js/experiment.js"></script>
+  </body>
+</html>

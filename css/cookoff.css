@@ -1,0 +1,470 @@
+/*
+ * A quiet dark instrument panel: slate ground, one warm accent, one thing lit at a time.
+ *
+ * The visual budget is spent almost entirely on the screens between blocks. During a capture
+ * window the screen is deliberately close to empty — a flat mid-dark field, a small progress
+ * readout pinned out of the way, and the target. Anything else on screen is somewhere else for
+ * the eyes to go, and every frame where they go there is a frame that says nothing about the
+ * point the participant was supposed to be looking at.
+ */
+
+:root {
+  --ck-counter: #191c21;
+  --ck-counter-lit: #22262d;
+  --ck-card: #23272f;
+  --ck-edge: #343a44;
+  --ck-text: #e8e3d9;
+  --ck-muted: #9aa1ad;
+  --ck-brass: #d9a441;
+  --ck-ember: #ff6b2c;
+  --ck-cream: #f6f1e4;
+  --ck-mint: #6fcf97;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--ck-counter);
+  color: var(--ck-text);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  overflow: hidden;
+}
+
+/* jspsych.css sets its own font on the display element, which would otherwise win. */
+.jspsych-display-element {
+  height: 100%;
+  width: 100%;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 17px;
+  color: var(--ck-text);
+}
+
+.jspsych-content-wrapper {
+  height: 100vh;
+}
+
+.jspsych-content {
+  max-width: none;
+  width: 100%;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--ck-edge);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #2c313a;
+  color: var(--ck-cream);
+  font: 0.85em/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ------------------------------------------------------------------ between blocks */
+
+.ck-card {
+  box-sizing: border-box;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2.5rem 3rem;
+  border: 1px solid var(--ck-edge);
+  border-radius: 10px;
+  background: var(--ck-card);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+  text-align: left;
+  line-height: 1.6;
+}
+
+.ck-card h1 {
+  margin: 0 0 1.2rem;
+  color: var(--ck-brass);
+  font-size: 2rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+.ck-card h2 {
+  margin: 0 0 0.8rem;
+  color: var(--ck-brass);
+  font-size: 1.35rem;
+  font-weight: 400;
+}
+
+.ck-card p {
+  margin: 0 0 1rem;
+  color: var(--ck-text);
+}
+
+.ck-ember {
+  color: var(--ck-ember);
+  font-weight: 600;
+}
+
+
+
+.ck-btn {
+  margin-top: 0.5rem;
+  padding: 0.7rem 2rem;
+  border: 1px solid var(--ck-brass);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ck-brass);
+  font: inherit;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.ck-btn:hover,
+.ck-btn:focus-visible {
+  background: var(--ck-brass);
+  color: #1a1c20;
+}
+
+/* The Prolific links are anchors styled as buttons. */
+a.ck-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.ck-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ end questions */
+
+.ck-question {
+  margin: 0 0 1.6rem;
+  padding: 0;
+  border: 0;
+}
+
+.ck-question legend {
+  margin-bottom: 0.6rem;
+  padding: 0;
+  color: var(--ck-text);
+  font-weight: 600;
+}
+
+.ck-question label {
+  display: block;
+  padding: 0.2rem 0;
+  color: var(--ck-text);
+  cursor: pointer;
+}
+
+.ck-question input[type="radio"] {
+  margin-right: 0.5rem;
+  accent-color: var(--ck-brass);
+}
+
+.ck-question input[type="text"] {
+  margin-left: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ck-edge);
+  border-radius: 4px;
+  background: var(--ck-counter);
+  color: var(--ck-text);
+  font: inherit;
+}
+
+/*
+ * The buttons jsPsych and the saccade.js plugins render themselves.
+ *
+ * `.jspsych-btn` is the class the fullscreen, preview, performance and time-sync trials put on
+ * their own buttons, and none of those markups are ours to change — so the class is styled to
+ * match rather than each trial being handed custom HTML. Without this the participant meets a
+ * default gray browser button on four of the first five screens.
+ */
+.jspsych-btn {
+  margin-top: 0.5rem;
+  padding: 0.7rem 2rem;
+  border: 1px solid var(--ck-brass);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ck-brass);
+  font-family: inherit;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.jspsych-btn:hover,
+.jspsych-btn:focus-visible {
+  background: var(--ck-brass);
+  color: #1a1c20;
+}
+
+/*
+ * The camera-choice cards.
+ *
+ * Buttons, not radio-and-submit: one press, no second confirmation step, and the illustration
+ * is the label rather than decoration beside it. `currentColor` on the SVG strokes means the
+ * drawing follows the button's own text color through hover and both themes without a second
+ * set of rules.
+ */
+.ck-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 210px;
+  min-height: 190px;
+  padding: 18px 16px 20px;
+  border: 1px solid var(--ck-edge);
+  border-radius: 10px;
+  background: var(--ck-card);
+  color: var(--ck-text);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+/* The opt-out sits on its own row under the two illustrated choices, so it reads as a fallback
+   rather than a third option of equal standing. */
+.ck-choice-plain {
+  flex-basis: 100%;
+  min-height: 0;
+  width: auto;
+  max-width: 14rem;
+  margin: 2px auto 0;
+  padding: 10px 22px;
+}
+
+.ck-choice:hover,
+.ck-choice:focus-visible {
+  border-color: var(--ck-brass);
+  color: var(--ck-brass);
+  background: var(--ck-counter-lit);
+}
+
+.ck-choice:focus-visible {
+  outline: 2px solid var(--ck-brass);
+  outline-offset: 2px;
+}
+
+.ck-choice svg {
+  display: block;
+}
+
+/* jsPsych lays its button group out inline; let the cards sit side by side and wrap. */
+#jspsych-html-button-response-btngroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.jspsych-btn:disabled {
+  border-color: var(--ck-edge);
+  color: var(--ck-muted);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+/* The "press space" line on the between-block screens: present, not shouted. */
+.ck-advance {
+  margin-top: 1.4rem;
+  color: var(--ck-muted);
+  font-size: 0.92rem;
+}
+
+.ck-status {
+  color: var(--ck-muted);
+  font-style: italic;
+}
+
+
+
+/* The fixation dot for the live frame-rate check. A face has to stay in view for that
+   measurement to mean anything, so the participant is given somewhere to look. */
+.ck-center-dot {
+  width: 14px;
+  height: 14px;
+  margin: 1.5rem auto 0.5rem;
+  border-radius: 50%;
+  background: var(--ck-brass);
+}
+
+/* The drain progress bar, shown only when a slow machine's encoder queue is behind. */
+.ck-bar {
+  height: 6px;
+  margin-top: 0.8rem;
+  border-radius: 3px;
+  background: #2c313a;
+  overflow: hidden;
+}
+
+.ck-bar > div {
+  height: 100%;
+  width: 0%;
+  background: var(--ck-brass);
+  transition: width 200ms ease;
+}
+
+
+
+
+
+
+/* ------------------------------------------------------------------ the task screen */
+
+.ck-stage {
+  position: fixed;
+  inset: 0;
+  /* A flat field, a shade lighter than the cards: a gradient or a texture would give the eyes
+     structure to drift onto between targets. */
+  background: var(--ck-counter-lit);
+}
+
+.ck-hud {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  display: flex;
+  gap: 2.2rem;
+  transform: translateX(-50%);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.ck-hud-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.ck-hud-label {
+  color: var(--ck-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.ck-hud-value {
+  color: var(--ck-cream);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-target {
+  position: fixed;
+  display: grid;
+  place-items: center;
+  width: 0;
+  height: 0;
+}
+
+.ck-target > * {
+  grid-area: 1 / 1;
+}
+
+/* The target appears and settles. */
+
+/*
+ * The target appears at full opacity on its first frame and settles to size.
+ *
+ * The luminance onset has to be a step: saccade latency to a stimulus that fades in is longer
+ * than to one that simply appears, by an amount nothing downstream can recover. Only the scale
+ * animates, and it never moves the center.
+ */
+.ck-bullseye {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ck-brass);
+  opacity: 1;
+  transform: scale(1.6);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ck-target-settled .ck-bullseye,
+.ck-target-capturing .ck-bullseye {
+  transform: scale(1);
+}
+
+/*
+ * Thaler, Schutz, Goodale & Gegenfurtner (2013): a disc with a cross cut through it and a small
+ * central dot holds fixation more tightly than a plain dot or a cross alone. The cross is drawn
+ * in the counter color so it reads as a cut rather than a line.
+ */
+.ck-bullseye-cross {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(var(--ck-counter-lit), var(--ck-counter-lit)) center / 100% 6px no-repeat,
+    linear-gradient(var(--ck-counter-lit), var(--ck-counter-lit)) center / 6px 100% no-repeat;
+}
+
+.ck-bullseye-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--ck-cream);
+  transition: background 60ms linear;
+}
+
+/*
+ * A faint rail the moving target runs along.
+ *
+ * Deliberately only just visible. A strong line would give the eye something to track *instead*
+ * of the target — smooth pursuit will happily lock onto a static edge — and the whole point of
+ * the trial is that the eye follows the moving target.
+ */
+.ck-rail {
+  position: fixed;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--ck-edge);
+  opacity: 0.5;
+  transform: translateY(-0.5px);
+  pointer-events: none;
+}
+
+/* The moving target is positioned with a transform, so it must not also animate one. */
+.ck-moving .ck-bullseye {
+  transition: none;
+}
+
+/* The probe. Six pixels across, so it cannot be caught out of the corner of an eye. */
+.ck-core-probe {
+  background: var(--ck-ember);
+  box-shadow: 0 0 6px 2px rgb(255 107 44 / 55%);
+}
+
+.ck-hit .ck-bullseye {
+  background: var(--ck-mint);
+}
+
+.ck-miss .ck-bullseye {
+  background: #7d5a5a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-bullseye {
+    transition-duration: 1ms;
+  }
+}

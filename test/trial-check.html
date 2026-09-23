@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Trial check</title>
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <link rel="stylesheet" href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" />
+    <link rel="stylesheet" href="../css/cookoff.css" />
+    <style>
+      #report {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        overflow: auto;
+        padding: 2rem;
+        background: #16181c;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #e8e3d9;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="jspsych-target"></div>
+    <pre id="report">running…</pre>
+
+    <script src="../js/encoding.js"></script>
+    <script src="../js/webgazer-features.js"></script>
+    <script src="../js/plugin-cookoff-capture.js"></script>
+    <script>
+      /*
+       * The capture trial, driven on a virtual clock.
+       *
+       * The trial is almost entirely timing: a settle phase, a capture window, a color change at a
+       * random moment inside it, a response deadline that can push the end of the window later
+       * than the nominal capture duration. None of that can be checked by looking at it, and
+       * checking it against the wall clock makes the test slow, flaky, and — in a backgrounded
+       * tab, where Chrome throttles timers to about 1 Hz — silently meaningless.
+       *
+       * So `setTimeout`, `setInterval` and `performance.now` are replaced with a clock this file
+       * advances by hand. The trial runs in milliseconds of real time, the results are
+       * deterministic, and a hidden tab changes nothing.
+       */
+
+      // ------------------------------------------------------------------ virtual clock
+
+      let now = 0;
+      let seq = 0;
+      let queue = [];
+
+      const realNow = performance.now.bind(performance);
+      performance.now = () => now;
+      window.setTimeout = (fn, delay) => {
+        const id = ++seq;
+        queue.push({ id, at: now + Math.max(0, delay || 0), fn, every: null });
+        return id;
+      };
+      window.setInterval = (fn, delay) => {
+        const id = ++seq;
+        const every = Math.max(1, delay || 1);
+        queue.push({ id, at: now + every, fn, every });
+        return id;
+      };
+      window.clearTimeout = window.clearInterval = (id) => {
+        queue = queue.filter((t) => t.id !== id);
+      };
+
+      /**
+       * Run the clock forward to `until`.
+       *
+       * Microtasks are drained *before* each look at the queue, not only after firing. The
+       * trial's finish path is async and jsPsych's move to the next trial is a promise chain,
+       * so the timers for trial N+1 do not exist at the moment trial N's last timer fires.
+       * Checking the queue first would find it empty, conclude the run was over, and skip the
+       * clock to `until` with two trials still to go.
+       */
+      /**
+       * Yield to the real event loop for one turn.
+       *
+       * Draining microtasks is not enough: jsPsych waits on real DOM events before it mounts
+       * anything, and those are macrotasks. A real `setTimeout` would do it, except that the
+       * whole point of this file is to work in a tab Chrome has throttled to 1 Hz. A
+       * `MessageChannel` message is a macrotask that background throttling does not touch.
+       */
+      const channel = new MessageChannel();
+      function macroYield() {
+        return new Promise((resolve) => {
+          channel.port1.onmessage = () => resolve();
+          channel.port2.postMessage(0);
+        });
+      }
+
+      async function advanceTo(until) {
+        let idle = 0;
+        for (let guard = 0; guard < 500000; guard++) {
+          for (let i = 0; i < 20; i++) await Promise.resolve();
+          const due = queue
+            .filter((t) => t.at <= until)
+            .sort((a, b) => a.at - b.at || a.id - b.id)[0];
+          if (!due) {
+            // An empty queue does not mean the run is over. Mounting the first trial and
+            // moving between trials wait on things that are not timers, so there is a stretch
+            // where nothing is scheduled yet and everything still has to happen.
+            if (++idle > 200) break;
+            await macroYield();
+            continue;
+          }
+          idle = 0;
+          now = due.at;
+          if (due.every) due.at = now + due.every;
+          else queue = queue.filter((t) => t !== due);
+          due.fn();
+        }
+        now = Math.max(now, until);
+      }
+
+      // Exposed so a stalled run can be inspected from the console.
+      window.__clock = {
+        get queue() {
+          return queue;
+        },
+        get now() {
+          return now;
+        },
+        advanceTo,
+      };
+
+      /**
+       * jsPsych 8 attaches its key listeners to the display element, not to `document`, so an
+       * event dispatched on `document` never reaches them — it would bubble the wrong way.
+       */
+      function press(key) {
+        const root = document.getElementById("jspsych-target");
+        root.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+        root.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }));
+      }
+
+      /** Press `delay` ms after this trial's capture window opens, on the virtual clock. */
+      function pressAfterCaptureOpens(settle, delay) {
+        return () => setTimeout(() => press(" "), settle + delay);
+      }
+
+      // ------------------------------------------------------------------ stub recorder
+
+      const EMB_DIM = 128;
+      const FRAME_MS = 33; // a 30 fps camera
+
+      const stub = {
+        fps: 30,
+        buffer: null,
+        timer: null,
+        embeddingDim: EMB_DIM,
+        beginCapture(_options) {
+          this.buffer = {
+            t0: performance.now(),
+            t: [],
+            embedding: [],
+            weight: [],
+            wgLeft: [],
+            wgRight: [],
+            wgBox: [],
+            head: [],
+            ear: [],
+            clockSource: "captureTime",
+            nFaceMissing: 1,
+            nDropped: 2,
+            nSkipped: 0,
+          };
+          const push = () => {
+            const b = this.buffer;
+            if (!b) return;
+            b.t.push(performance.now());
+            const e = new Float32Array(EMB_DIM);
+            for (let i = 0; i < EMB_DIM; i++) e[i] = Math.sin(i + b.t.length) * 2;
+            b.embedding.push(e);
+            b.weight.push([0.9]);
+            const gray = new Uint8ClampedArray(60);
+            for (let i = 0; i < 60; i++) gray[i] = (i * 4 + b.t.length) % 256;
+            b.wgLeft.push(gray);
+            b.wgRight.push(gray);
+            b.wgBox.push([352, 202, 51, 18, 243, 202, 45, 18]);
+            b.head.push(new Float32Array(27).fill(0.5));
+            b.ear.push(new Float32Array([0.28, 0.29]));
+          };
+          push();
+          this.timer = setInterval(push, FRAME_MS);
+        },
+        async flush() {},
+        endCapture() {
+          clearInterval(this.timer);
+          const b = this.buffer;
+          this.buffer = null;
+          return b;
+        },
+        /* The shipped packer, with DualRecorder's `this.embeddingDim`. */
+        pack: window.DualRecorder
+          ? window.DualRecorder.prototype.pack
+          : function (buffer, trialStart) {
+              const E = window.CookoffEncoding;
+              return {
+                n_frames: buffer.t.length,
+                frame_t: buffer.t.map((t) => Math.round((t - trialStart) * 10) / 10),
+                clock_source: buffer.clockSource,
+                n_face_missing: buffer.nFaceMissing,
+                n_camera_dropped: buffer.nDropped,
+                n_skipped: buffer.nSkipped,
+                // The inline shape: every frame has an embedding, so embedded_frames is null
+                // and there are no leftover crops. The deferred shape is checked separately,
+                // in test/deferred-check.html.
+                embedded_frames: null,
+                crop_frames: null,
+                saccade_crop: null,
+                saccade_embedding: E.encodeF16Rows(buffer.embedding, this.embeddingDim),
+                saccade_weight: E.encodeF16Rows(buffer.weight, 1),
+                webgazer_gray_left: E.encodeU8Rows(buffer.wgLeft, 60),
+                webgazer_gray_right: E.encodeU8Rows(buffer.wgRight, 60),
+                webgazer_eye_box: E.encodeI16Rows(buffer.wgBox, 8),
+                head_landmarks: E.encodeF16Rows(buffer.head, 27),
+                eye_aspect_ratio: E.encodeF16Rows(buffer.ear, 2),
+              };
+            },
+      };
+
+      window.Cookoff = { recorder: stub };
+
+      // ------------------------------------------------------------------ the run
+
+      const jsPsych = initJsPsych({ display_element: "jspsych-target", on_finish: report });
+
+      const base = {
+        type: jsPsychCookoffCapture,
+        settle_duration: 700,
+        capture_duration: 1000,
+        response_deadline: 1000,
+        block: 0,
+        rep: 0,
+        block_length: 3,
+      };
+
+      // Probe onsets are fixed rather than drawn, so the expected outcomes are exact.
+      const EARLY = [300, 300];
+      const LATE = [900, 900]; // past capture_duration: the window must stretch to cover it
+
+      // The presses are scheduled from each trial's own `on_load`, on the virtual clock, so
+      // they land at a known offset into that trial's capture window rather than at an absolute
+      // time this file would have to predict.
+      const timeline = [
+        // A color change at 300 ms, answered 250 ms later: a hit.
+        { ...base, x: 0.5, y: 0.5, probe: true, probe_window: EARLY, index_in_block: 0,
+          point_set: "train",
+          on_load: pressAfterCaptureOpens(base.settle_duration, 550) },
+        // A color change at 900 ms, ignored: a miss, and a capture window that has to run past
+        // `capture_duration` to cover the response deadline.
+        { ...base, x: 0.05, y: 0.05, probe: true, probe_window: LATE, index_in_block: 1,
+          point_set: "test" },
+        // No color change, answered anyway: a false alarm.
+        { ...base, x: 0.95, y: 0.95, probe: false, index_in_block: 2,
+          point_set: "train",
+          on_load: pressAfterCaptureOpens(base.settle_duration, 400) },
+      ];
+
+      async function drive() {
+        jsPsych.run(timeline);
+        await advanceTo(60000);
+      }
+
+      function report() {
+        const E = window.CookoffEncoding;
+        const rows = jsPsych.data.get().filter({ trial_type: "cookoff-capture" }).values();
+        const lines = [];
+        let failures = 0;
+        const check = (name, ok, detail) => {
+          if (!ok) failures++;
+          lines.push(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
+        };
+
+        check("three stations ran", rows.length === 3, `${rows.length}`);
+        check("outcomes are hit, miss, false alarm",
+          rows.map((r) => r.probe_outcome).join(", ") === "hit, miss, false_alarm",
+          rows.map((r) => r.probe_outcome).join(", "));
+        check("the hit's RT is measured from the color change, not the window",
+          rows[0].probe_rt === 250, `${rows[0].probe_rt} ms`);
+        check("the miss recorded a color change and no response",
+          rows[1].probe_onset === 900 && rows[1].response_time === null,
+          `change at ${rows[1].probe_onset} ms`);
+        check("the false alarm recorded a response and no color change",
+          rows[2].probe_onset === null && rows[2].response_time === 400,
+          `response at ${rows[2].response_time} ms`);
+
+        // The point of the deadline logic: a change at 900 ms into a 1000 ms window must not
+        // leave 100 ms of capture behind it.
+        const last = rows[1].frame_t[rows[1].n_frames - 1];
+        check("a late color change stretches the capture window",
+          last >= rows[1].probe_onset + 900,
+          `last frame at ${last} ms, change at ${rows[1].probe_onset} ms`);
+        check("an unprobed window closes at capture_duration",
+          rows[2].frame_t[rows[2].n_frames - 1] < 1000,
+          `last frame at ${rows[2].frame_t[rows[2].n_frames - 1]} ms`);
+
+        for (const [i, r] of rows.entries()) {
+          const n = r.n_frames;
+          check(`station ${i}: every stream is ${n} frames long`,
+            n >= 25 &&
+              E.decodeF16(r.saccade_embedding, EMB_DIM).length === n &&
+              E.decodeU8(r.webgazer_gray_left, 60).length === n &&
+              E.decodeU8(r.webgazer_gray_right, 60).length === n &&
+              E.decodeU8(r.webgazer_eye_box, 16).length === n &&
+              E.decodeF16(r.head_landmarks, 27).length === n &&
+              E.decodeF16(r.eye_aspect_ratio, 2).length === n &&
+              E.decodeF16(r.saccade_weight, 1).length === n &&
+              r.frame_t.length === n,
+            `${n} frames over ${r.frame_t[n - 1]} ms`);
+          check(`station ${i}: frame times start at the capture onset and run forward`,
+            r.frame_t[0] === 0 && r.frame_t.every((t, k) => k === 0 || t > r.frame_t[k - 1]),
+            `${r.frame_t[0]} … ${r.frame_t[n - 1]} ms`);
+          check(`station ${i}: the target is where it was asked for`,
+            r.target_x === Math.round(r.target_x_frac * r.viewport_width) &&
+              r.target_y === Math.round(r.target_y_frac * r.viewport_height),
+            `(${r.target_x}, ${r.target_y}) in ${r.viewport_width}x${r.viewport_height}`);
+          check(`station ${i}: the frame counts came through`,
+            r.n_face_missing === 1 && r.n_camera_dropped === 2 && r.clock_source === "captureTime");
+        }
+
+        const bytes = JSON.stringify(rows).length;
+        lines.push(`\nthree stations serialise to ${(bytes / 1024).toFixed(1)} KB of JSON`);
+        lines.unshift(failures === 0 ? `${lines.length} checks passed\n` : `${failures} CHECK(S) FAILED\n`);
+        lines.push(`\nvirtual time ${Math.round(now)} ms, real time ${Math.round(realNow())} ms`);
+        document.getElementById("report").textContent = lines.join("\n");
+        window.trialCheck = { failures, lines };
+      }
+
+      drive().catch((err) => {
+        document.getElementById("report").textContent = "the run threw:\n" + (err && err.stack);
+      });
+    </script>
+  </body>
+</html>

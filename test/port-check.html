@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebGazer port check</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #16181c;
+        color: #e8e3d9;
+        font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      h1 {
+        font-size: 1.2rem;
+        font-weight: 500;
+      }
+      .pass {
+        color: #6fcf97;
+      }
+      .fail {
+        color: #ff6b2c;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebGazer port check</h1>
+    <p>
+      Runs <code>js/webgazer-features.js</code> against the literal webgazer 3.5.3 code path on
+      the same pixels. Open the console for detail.
+    </p>
+    <pre id="out">running…</pre>
+
+    <script src="../js/webgazer-features.js"></script>
+    <script>
+      /*
+       * The reference: webgazer 3.5.3's own functions, pasted unchanged.
+       *
+       * The port differs from these in exactly one way — it cuts the eye box out of an
+       * ImageData the recorder already holds, instead of calling getImageData on a canvas for
+       * each eye. Everything downstream (the canvas resize, the grayscale, the equalization) is
+       * meant to be the same code doing the same thing, and this file is what says so rather
+       * than assuming it.
+       */
+
+      // webgazer/src/util.mjs
+      function wgResizeEye(eye, resizeWidth, resizeHeight) {
+        var canvas = document.createElement("canvas");
+        canvas.width = eye.width;
+        canvas.height = eye.height;
+        canvas.getContext("2d", { willReadFrequently: true }).putImageData(eye.patch, 0, 0);
+        var tempCanvas = document.createElement("canvas");
+        tempCanvas.width = resizeWidth;
+        tempCanvas.height = resizeHeight;
+        tempCanvas
+          .getContext("2d")
+          .drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, resizeWidth, resizeHeight);
+        return tempCanvas.getContext("2d").getImageData(0, 0, resizeWidth, resizeHeight);
+      }
+
+      // webgazer/src/util.mjs
+      function wgGrayscale(pixels, width, height) {
+        var gray = new Uint8ClampedArray(pixels.length >> 2);
+        var p = 0;
+        var w = 0;
+        for (var i = 0; i < height; i++) {
+          for (var j = 0; j < width; j++) {
+            var value = pixels[w] * 0.299 + pixels[w + 1] * 0.587 + pixels[w + 2] * 0.114;
+            gray[p++] = value;
+            w += 4;
+          }
+        }
+        return gray;
+      }
+
+      // webgazer/src/util.mjs
+      function wgEqualizeHistogram(src, step, dst) {
+        var srcLength = src.length;
+        if (!dst) dst = src;
+        if (!step) step = 5;
+        var hist = Array(256).fill(0);
+        for (var i = 0; i < srcLength; i += step) {
+          ++hist[src[i]];
+        }
+        var norm = (255 * step) / srcLength,
+          prev = 0;
+        for (var i = 0; i < 256; ++i) {
+          var h = hist[i];
+          prev = h += prev;
+          hist[i] = h * norm;
+        }
+        for (var i = 0; i < srcLength; ++i) {
+          dst[i] = hist[src[i]];
+        }
+        return dst;
+      }
+
+      // ------------------------------------------------------------------ the check
+
+      const WG = window.CookoffWebGazer;
+      const lines = [];
+      let failures = 0;
+
+      function check(name, ok, detail) {
+        if (!ok) failures++;
+        lines.push(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
+      }
+
+      function randomFrame(W, H, seed) {
+        // Deterministic noise with smooth structure, so the downsample has something to average.
+        const data = new Uint8ClampedArray(W * H * 4);
+        let s = seed;
+        const rand = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * 4;
+            const base = 128 + 90 * Math.sin(x / 7) * Math.cos(y / 5);
+            data[i] = base + rand() * 40;
+            data[i + 1] = base * 0.8 + rand() * 40;
+            data[i + 2] = base * 0.6 + rand() * 40;
+            data[i + 3] = 255;
+          }
+        }
+        return data;
+      }
+
+      function webgazerPath(frame, W, H, box) {
+        // What webgazer does: a canvas holding the frame, then getImageData for the eye box.
+        const canvas = document.createElement("canvas");
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.putImageData(new ImageData(frame, W, H), 0, 0);
+        const patch = ctx.getImageData(box.x, box.y, box.width, box.height);
+        const eye = { patch, width: box.width, height: box.height };
+        const resized = wgResizeEye(eye, WG.RESIZE_W, WG.RESIZE_H);
+        return wgGrayscale(resized.data, resized.width, resized.height);
+      }
+
+      const W = 640;
+      const H = 480;
+      const frame = randomFrame(W, H, 7);
+      const patcher = new WG.EyePatcher();
+
+      const boxes = [
+        { name: "typical eye box", x: 240, y: 190, width: 46, height: 22 },
+        { name: "tall box", x: 100, y: 100, width: 18, height: 40 },
+        { name: "tiny box", x: 300, y: 300, width: 7, height: 4 },
+        { name: "box off the left edge", x: -8, y: 200, width: 40, height: 20 },
+        { name: "box off the bottom edge", x: 500, y: 468, width: 40, height: 30 },
+        { name: "box larger than the frame", x: -20, y: -20, width: W + 40, height: H + 40 },
+      ];
+
+      for (const box of boxes) {
+        const mine = patcher.patch(frame, W, H, box);
+        const theirs = webgazerPath(frame, W, H, box);
+        let maxDiff = 0;
+        for (let i = 0; i < theirs.length; i++) {
+          maxDiff = Math.max(maxDiff, Math.abs(mine[i] - theirs[i]));
+        }
+        check(`patch: ${box.name}`, maxDiff === 0, `max byte difference ${maxDiff}`);
+      }
+
+      // The equalization the offline replay re-applies must be webgazer's, exactly.
+      for (const seed of [1, 2, 3]) {
+        const gray = new Uint8ClampedArray(60);
+        let s = seed;
+        for (let i = 0; i < 60; i++) {
+          s = (s * 1103515245 + 12345) & 0x7fffffff;
+          gray[i] = (s >> 7) & 0xff;
+        }
+        const mine = WG.equalizeHistogram(gray, 5);
+        const theirs = wgEqualizeHistogram(Uint8ClampedArray.from(gray), 5, []);
+        let maxDiff = 0;
+        for (let i = 0; i < 60; i++) maxDiff = Math.max(maxDiff, Math.abs(mine[i] - theirs[i]));
+        // float32 storage against webgazer's float64 arithmetic: equal to single precision.
+        check(`equalizeHistogram, seed ${seed}`, maxDiff < 1e-3, `max difference ${maxDiff}`);
+      }
+
+      // A degenerate patch (every pixel the same) must not divide by zero or go NaN.
+      const flat = new Uint8ClampedArray(60).fill(120);
+      const flatOut = WG.equalizeHistogram(flat, 5);
+      check(
+        "equalizeHistogram on a flat patch",
+        flatOut.every((v) => Number.isFinite(v)),
+        `first value ${flatOut[0]}`,
+      );
+
+      // getEyeFeats must be left eye then right eye, 120 long.
+      const feats = WG.getEyeFeats(new Uint8ClampedArray(60).fill(10), new Uint8ClampedArray(60).fill(200));
+      check("getEyeFeats length", feats.length === 120, `got ${feats.length}`);
+
+      // Eye boxes: webgazer's rule is min over the TOP arc against max over the BOTTOM arc.
+      const landmarks = [];
+      for (let i = 0; i < 478; i++) landmarks.push({ x: 0.5, y: 0.5, z: 0 });
+      for (const i of WG.EYE_INDICES.leftEyeUpper0) landmarks[i] = { x: 0.6, y: 0.4, z: 0 };
+      for (const i of WG.EYE_INDICES.leftEyeLower0) landmarks[i] = { x: 0.7, y: 0.45, z: 0 };
+      for (const i of WG.EYE_INDICES.rightEyeUpper0) landmarks[i] = { x: 0.3, y: 0.4, z: 0 };
+      for (const i of WG.EYE_INDICES.rightEyeLower0) landmarks[i] = { x: 0.4, y: 0.45, z: 0 };
+      const eb = WG.eyeBoxes(landmarks, 640, 480);
+      check(
+        "eyeBoxes geometry",
+        eb.left.x === 384 && eb.left.y === 192 && eb.left.width === 64 && eb.left.height === 24,
+        JSON.stringify(eb.left),
+      );
+      check("eyeBoxes rejects a degenerate eye", WG.eyeBoxes(
+        landmarks.map((p, i) => (WG.EYE_INDICES.leftEyeLower0.includes(i) ? { x: 0.6, y: 0.4, z: 0 } : p)),
+        640,
+        480,
+      ) === null);
+
+      lines.unshift(
+        failures === 0
+          ? `<span class="pass">${lines.length} checks passed</span>\n`
+          : `<span class="fail">${failures} of ${lines.length} checks FAILED</span>\n`,
+      );
+      document.getElementById("out").innerHTML = lines.join("\n");
+      window.portCheck = { failures, total: lines.length - 1, lines };
+      console.log(lines.join("\n"));
+    </script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+# lib/ IS committed: GitHub Pages serves the experiment straight from this repo, so the
+# saccade.js bundles and the 20 MB model have to be in it. They are build output of
+# jspsych/saccadejs; refresh them with scripts/sync-saccade.sh, and lib/saccade/SYNCED.json
+# records which commit they came from.
+
+# Sessions saved by the download path while piloting.
+data/
+cookoff_*.json
+
+.DS_Store
+__pycache__/
+*.pyc
+.venv/

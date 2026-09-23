@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>pipeline check</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #16181c;
+        color: #e8e3d9;
+        font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      h1 {
+        font-size: 1.2rem;
+        font-weight: 500;
+      }
+      .pass {
+        color: #6fcf97;
+      }
+      .fail {
+        color: #ff6b2c;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+      canvas {
+        margin-top: 1rem;
+        border: 1px solid #343a44;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Pipeline check</h1>
+    <p>
+      Everything the recorder does to a frame, on a synthetic frame and a fabricated face mesh,
+      with no camera. Confirms the ONNX encoder loads from the configured URL and produces an
+      embedding, that both feature cuts succeed, and that the packed output decodes. The timings
+      are the real per-frame cost of the encoder on this machine, minus the MediaPipe detection.
+    </p>
+    <pre id="out">running…</pre>
+    <div>
+      <canvas id="eye" width="144" height="36" style="width: 432px; height: 108px"></canvas>
+      <canvas id="patch" width="10" height="6" style="width: 200px; height: 120px"></canvas>
+    </div>
+
+    <script src="../lib/saccade/core.js"></script>
+    <script src="../js/config.js"></script>
+    <script src="../js/encoding.js"></script>
+    <script src="../js/webgazer-features.js"></script>
+
+    <script type="module">
+      const lines = [];
+      let failures = 0;
+      const out = document.getElementById("out");
+      const log = (text) => {
+        lines.push(text);
+        out.textContent = lines.join("\n");
+      };
+      const check = (name, ok, detail) => {
+        if (!ok) failures++;
+        log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
+      };
+
+      const W = 640;
+      const H = 480;
+
+      /**
+       * A face mesh with no face behind it.
+       *
+       * Only a handful of the 478 landmarks matter to either tracker — the six saccade.js uses
+       * for its eye strip, and the 32 in WebGazer's two eye arcs — so the rest are parked at the
+       * center. The numbers put the eyes where a face at a normal working distance puts them.
+       */
+      function fabricateLandmarks() {
+        const lm = [];
+        for (let i = 0; i < 478; i++) lm.push({ x: 0.5, y: 0.5, z: 0 });
+        const put = (i, x, y) => (lm[i] = { x, y, z: 0 });
+
+        // saccade.js crop box: outer corners at 226/446, lids at 27/257 and 23/253.
+        put(226, 0.36, 0.44);
+        put(446, 0.64, 0.44);
+        put(27, 0.42, 0.41);
+        put(257, 0.58, 0.41);
+        put(23, 0.42, 0.47);
+        put(253, 0.58, 0.47);
+
+        // WebGazer's eye arcs: an upper arc and a lower arc per eye.
+        const WG = window.CookoffWebGazer.EYE_INDICES;
+        const arc = (indices, x0, x1, y) =>
+          indices.forEach((idx, k) =>
+            put(idx, x0 + ((x1 - x0) * k) / (indices.length - 1), y + 0.004 * Math.sin(k)),
+          );
+        arc(WG.leftEyeUpper0, 0.62, 0.55, 0.425);
+        arc(WG.leftEyeLower0, 0.63, 0.55, 0.455);
+        arc(WG.rightEyeUpper0, 0.38, 0.45, 0.425);
+        arc(WG.rightEyeLower0, 0.37, 0.45, 0.455);
+        return lm;
+      }
+
+      /** A frame with eye-like structure, so the encoder is not fed a flat field. */
+      function syntheticFrame() {
+        const canvas = document.createElement("canvas");
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.fillStyle = "#6b5a4a";
+        ctx.fillRect(0, 0, W, H);
+        for (const cx of [0.42 * W, 0.58 * W]) {
+          ctx.fillStyle = "#e8e0d4";
+          ctx.beginPath();
+          ctx.ellipse(cx, 0.44 * H, 34, 14, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#4a3b2e";
+          ctx.beginPath();
+          ctx.arc(cx + 6, 0.44 * H, 11, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#12100e";
+          ctx.beginPath();
+          ctx.arc(cx + 6, 0.44 * H, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        return ctx.getImageData(0, 0, W, H).data;
+      }
+
+      // config.js holds a path relative to the experiment at the repo root; this page is a
+      // directory down.
+      const assets = { ...CookoffConfig.assets, modelUrl: "../" + CookoffConfig.assets.modelUrl };
+
+      const t0 = performance.now();
+      const landmarks = fabricateLandmarks();
+      const frame = syntheticFrame();
+
+      // ---- saccade.js: the eye strip ---------------------------------------------------
+      const crop = Saccade.extractEyeCrop(frame, W, H, landmarks);
+      check("extractEyeCrop returns a strip", !!crop && crop.data.length === 144 * 36, crop ? `${crop.data.length} bytes, bbox ${JSON.stringify(crop.bbox)}` : "null");
+
+      if (crop) {
+        const ctx = document.getElementById("eye").getContext("2d");
+        const img = ctx.createImageData(144, 36);
+        for (let i = 0; i < crop.data.length; i++) {
+          img.data.set([crop.data[i], crop.data[i], crop.data[i], 255], i * 4);
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+
+      // ---- WebGazer: the two patches --------------------------------------------------
+      const patcher = new window.CookoffWebGazer.EyePatcher();
+      const wg = patcher.patches(frame, W, H, landmarks);
+      check("EyePatcher cuts both eyes", !!wg && wg.left.length === 60 && wg.right.length === 60,
+        wg ? `boxes ${JSON.stringify(wg.boxes)}` : "null");
+
+      if (wg) {
+        const ctx = document.getElementById("patch").getContext("2d");
+        const img = ctx.createImageData(10, 6);
+        for (let i = 0; i < 60; i++) img.data.set([wg.left[i], wg.left[i], wg.left[i], 255], i * 4);
+        ctx.putImageData(img, 0, 0);
+
+        const feats = window.CookoffWebGazer.getEyeFeats(wg.left, wg.right);
+        check("getEyeFeats is 120 finite numbers", feats.length === 120 && feats.every(Number.isFinite),
+          `range ${Math.min(...feats).toFixed(1)}..${Math.max(...feats).toFixed(1)}`);
+      }
+
+      // ---- the encoder ----------------------------------------------------------------
+      log("\nloading the ONNX encoder from " + assets.modelUrl + " …");
+      const model = new Saccade.OrtEmbeddingModel({ assets });
+      let loadMs = 0;
+      let embedding = null;
+      let weight = null;
+      try {
+        const tLoad = performance.now();
+        const { ep } = await model.init();
+        loadMs = performance.now() - tLoad;
+        const identity = model.identity();
+        check("encoder loads", true,
+          `${Saccade.formatModelIdentity(identity)} on ${ep}, dim ${identity.dim}, ${Math.round(loadMs)} ms`);
+
+        const result = await model.embed(crop.data);
+        embedding = result.embedding;
+        weight = result.weight;
+        check("embed returns a vector", embedding.length > 0 && embedding.every(Number.isFinite),
+          `${embedding.length} values, weight ${weight}`);
+
+        /*
+         * What the frame rate actually depends on.
+         *
+         * The recorder pipelines: the CPU work for frame N+1 — canvas readback, MediaPipe,
+         * both feature cuts — runs while the GPU encodes frame N. So the limit is not the sum
+         * of the two, it is whichever is slower. Timing them added together, as the obvious
+         * benchmark does, overstates the cost by nearly a factor of two.
+         *
+         * The encoder needs a real warm-up before it is timed: WebGPU compiles its shaders on
+         * first use, and the first few runs are two to three times the settled cost.
+         */
+        const WARM = 40;
+        const N = 60;
+        for (let i = 0; i < WARM; i++) await model.embed(crop.data);
+        const tEmbed = performance.now();
+        for (let i = 0; i < N; i++) await model.embed(crop.data);
+        const embedMs = (performance.now() - tEmbed) / N;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const time = (fn) => {
+          for (let i = 0; i < 10; i++) fn();
+          const t = performance.now();
+          for (let i = 0; i < N; i++) fn();
+          return (performance.now() - t) / N;
+        };
+        const readbackMs = time(() => ctx.getImageData(0, 0, W, H));
+        const cropMs = time(() => Saccade.extractEyeCrop(frame, W, H, landmarks));
+        const patchMs = time(() => patcher.patches(frame, W, H, landmarks));
+        const cpuMs = readbackMs + cropMs + patchMs;
+
+        log(`\nGPU, per frame:  encode ${embedMs.toFixed(1)} ms${model.graphCapture ? " (graph capture on)" : ""}`);
+        log(`CPU, per frame:  readback ${readbackMs.toFixed(1)}   eye strip ${cropMs.toFixed(1)}   WebGazer patches ${patchMs.toFixed(1)}   = ${cpuMs.toFixed(1)} ms`);
+        log(`                 MediaPipe detection, roughly 5-15 ms, is on top of the CPU side.`);
+        const limit = Math.max(embedMs, cpuMs);
+        log(`\nThe two overlap, so the floor is the slower of them: ${limit.toFixed(1)} ms, about ${Math.round(1000 / limit)} fps.`);
+        check("the pipeline can keep up with a 30 fps camera", limit < 33.3,
+          `${limit.toFixed(1)} ms per frame before MediaPipe; the warm-up trial measures the real rate with a camera`);
+      } catch (err) {
+        check("encoder loads", false, String(err));
+      }
+
+      // ---- packing --------------------------------------------------------------------
+      if (embedding && wg) {
+        const E = window.CookoffEncoding;
+        const frames = 25;
+        const rows = Array.from({ length: frames }, () => embedding);
+        const grayRows = Array.from({ length: frames }, () => wg.left);
+        const b64 = E.encodeF16Rows(rows, embedding.length);
+        const g64 = E.encodeU8Rows(grayRows, 60);
+
+        const decoded = E.decodeF16(b64, embedding.length);
+        let maxRel = 0;
+        for (let i = 0; i < embedding.length; i++) {
+          const denom = Math.max(1e-3, Math.abs(embedding[i]));
+          maxRel = Math.max(maxRel, Math.abs(decoded[0][i] - embedding[i]) / denom);
+        }
+        check("float16 round-trip holds the embedding", maxRel < 5e-3,
+          `largest relative error ${maxRel.toExponential(1)}`);
+
+        const decodedGray = E.decodeU8(g64, 60);
+        check("uint8 round-trip is lossless for the patches",
+          decodedGray[0].every((v, i) => v === wg.left[i]));
+
+        const perPoint = b64.length + g64.length * 2 + frames * 8 * 2 + frames * (27 + 2 + 1) * 2;
+        log(`\none point of ${frames} frames packs to about ${(perPoint / 1024).toFixed(1)} KB of base64`);
+        const P = CookoffConfig.points;
+        const perBlock = { 9: 9, 13: 13, 25: 25 }[P.grid] + (P.validation ? 9 : 0) + P.n_random;
+        const stations = perBlock * CookoffConfig.design.n_blocks;
+        log(`a ${CookoffConfig.design.n_blocks}-block session of ${stations} points is therefore about ${((perPoint * stations) / 1e6).toFixed(1)} MB`);
+      }
+
+      log(
+        failures === 0
+          ? `\nall checks passed in ${Math.round(performance.now() - t0)} ms`
+          : `\n${failures} CHECK(S) FAILED`,
+      );
+      window.pipelineCheck = { failures };
+    </script>
+  </body>
+</html>
