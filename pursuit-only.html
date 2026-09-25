@@ -77,6 +77,9 @@
       C.points.validation = false;
       C.points.n_random = 0;
 
+      // The main study leaves the moving-target block out; this build exists for it.
+      C.pursuit.repeats = 1;
+
       // Distinct prefix so a diagnostic file is never mistaken for a real session.
       C.save.filename_prefix = "pursuit-only";
     </script>

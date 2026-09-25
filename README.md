@@ -128,7 +128,7 @@ live here and in the code.
    frame than saccade.js's own tracker, so the tracker's performance trial would report a rate
    this session never sees.
 7. **A practice block**, then three blocks of stations.
-8. **The moving-target block**; see
+8. **The moving-target block**, off in the main study (`pursuit.repeats: 0`); see
    [What the timing measurement is worth](#what-the-timing-measurement-is-worth).
 
 A trial is one fixation point. A target appears, settles to its final size, and the recorder
@@ -297,8 +297,12 @@ to do with how well the tracker sees the eye. On one session's 110 ms lag that w
 python analysis/pursuit.py session.json
 ```
 
-Three runs, about half a minute, after the static blocks — so calibration still comes from
-stationary targets and the moving target is purely a test set.
+The main study leaves this block out (`pursuit.repeats: 0` in `js/config.js`): the pilot
+sessions made the demonstration, more participants would not strengthen it, and the saccade
+latencies already show what the loopback correction is worth, against a known physiological
+range. `pursuit-only.html` still runs it. When it is on: three runs, about half a minute, after
+the static blocks — so calibration still comes from stationary targets and the moving target is
+purely a test set.
 
 ### Why an ellipse
 

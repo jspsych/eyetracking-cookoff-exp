@@ -175,14 +175,16 @@ window.CookoffConfig = {
     /** Fraction of runs with a color change. Keeps the eye on the target rather than ahead of it. */
     probe_rate: 0.67,
     /**
-     * How many times the whole set of speeds is run.
+     * How many times the whole set of speeds is run. Zero leaves the block out.
      *
-     * One, because this block demonstrates the *consequence* of a timing error and is not
-     * where the lag gets measured. Adding replicates was an attempt to make it a measurement,
-     * and that attempt does not work: too many unknowns share one observable. See the note at
-     * the top of `analysis/pursuit.py`.
+     * Zero in the main study. The block demonstrates the *consequence* of a timing error and
+     * cannot measure the lag (too many unknowns share one observable; see the note at the top of
+     * `analysis/pursuit.py`), and the static stations' saccade latencies already show what the
+     * loopback correction is worth, against a known physiological range. Two pilot sessions
+     * made the demonstration; more participants would not strengthen it, and it cost about
+     * half a minute of each session. `pursuit-only.html` sets this to 1.
      */
-    repeats: 1,
+    repeats: 0,
   },
 
   /**

@@ -4,7 +4,7 @@
  *
  * Structure: camera setup, a live frame-rate check, the screen-to-webcam timing measurement, a
  * warm-up that confirms the recorder keeps up on this machine, a practice block, one block per
- * pass over the point grid, then the moving-target block.
+ * pass over the point grid, then the moving-target block if `pursuit.repeats` asks for one.
  *
  * On the participant-facing copy: it says what to do and stops. The reasons any of this is
  * built the way it is live in the code and the docs, where they are useful. A participant
@@ -160,9 +160,11 @@
     button_html: (choice) => `<button class="ck-btn">${choice}</button>`,
   });
 
+  /** Whether this session has the moving-target block; `pursuit.repeats: 0` leaves it out. */
+  const hasPursuit = config.pursuit.runs.length > 0 && config.pursuit.repeats > 0;
+
   /** How many blocks the participant will be asked to do, counting the moving-target one. */
-  const totalBlocks = () =>
-    config.design.n_blocks + (config.pursuit.runs.length && config.pursuit.repeats ? 1 : 0);
+  const totalBlocks = () => config.design.n_blocks + (hasPursuit ? 1 : 0);
 
   /**
    * A screen advanced with the space bar rather than a button.
@@ -1109,7 +1111,7 @@
     }
   }
 
-  timeline.push(movingTargetIntro, ...movingTargetBlock());
+  if (hasPursuit) timeline.push(movingTargetIntro, ...movingTargetBlock());
 
   if (config.fullscreen) timeline.push(exitFullscreen);
   const questions = endQuestions();
