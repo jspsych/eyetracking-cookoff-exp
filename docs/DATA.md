@@ -190,7 +190,9 @@ its timers throttled to about 1 Hz and stops receiving camera frames. Always exc
 
 ## Session-level properties
 
-On every row: `participant_id`, `experiment`, `version`, `user_agent`, `screen_width`,
+On every row: `participant_id`, `experiment`, `version` (also in the file name, as
+`cookoff_v<version>_<participant>_<timestamp>.json`; the first pilot's files, version 1.0.0,
+have no version in the name), `user_agent`, `screen_width`,
 `screen_height`.
 
 From the screening trials, before the camera or the model are touched:
@@ -240,6 +242,13 @@ would not start), `encoder_inline_ms` and `encoder_worker_ms` (measured on this 
 is what the budget was computed from), `encoder_provider`, `encoder_budget_per_station`,
 `frames_embedded`, `frames_left_as_crops`, and `embed_queue_timed_out`.
 
+What the mode was decided from: `camera_fps`, the camera's delivered frame rate measured on the
+video element itself before anything was timed (null if the browser could not report it);
+`encoder_inline_ms`, now the *median* of `encoder_inline_samples` inferences; and
+`encoder_inline_limit_ms`, the limit it was compared against. On WebGPU the limit is 85% of one
+camera frame, between 30 and 80 ms; on wasm, or with no `camera_fps`, it is 30 ms. Sessions
+recorded before these fields existed used a flat 30 ms and the mean of five inferences.
+
 From the warm-up: `embedding_dim`, `embedding_model` (a string like `eye-embedding@1.0.0`, which
 means the loaded bytes hash-matched that published release; anything else appears as
 `sha256:...`), `execution_provider` (`webgpu` or `wasm`), `landmarker_delegate` (`GPU` or `CPU`),
@@ -247,7 +256,10 @@ means the loaded bytes hash-matched that published release; anything else appear
 (`recorder_frames`, `recorder_face_missing`, `recorder_camera_dropped`, `recorder_errors`).
 
 `warmup_fps` below about 20 means this recorder could not keep up and the capture windows will
-be thin. Decide the exclusion threshold before collecting. For what *live* tracking would have
+be thin. In sessions recorded before `camera_fps` existed, a `warmup_fps` of 0 (or a
+`warmup_frames` of 1 or 2) is not a slow camera: MediaPipe's one-time setup ran on the warm-up's
+first frame and blocked the page for the whole window. Use the capture trials' `frame_t`
+spacing for those sessions' real rate. The setup now runs while the recorder loads. Decide the exclusion threshold before collecting. For what *live* tracking would have
 managed, use `saccade_live_fps_median` instead — see the next section.
 
 ## Could this machine have tracked live?

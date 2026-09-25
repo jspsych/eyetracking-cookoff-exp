@@ -118,6 +118,27 @@
     this.landmarker = await global.Saccade.createLandmarker({ assets: this.assets, headPose: true });
     const identity = this.model.identity ? this.model.identity() : null;
     if (identity && identity.dim) this.embeddingDim = identity.dim;
+
+    /*
+     * Run one detection now, while the participant is looking at a loading message.
+     *
+     * MediaPipe does its one-time setup (the graph, and the GPU delegate's shaders) on the first
+     * detection, not on creation, and that detection is synchronous. Left to the frame loop, it
+     * landed on the first frame of the warm-up and blocked the page for several seconds on slow
+     * machines: in the first pilot, three sessions completed one or two frames in the 3 s
+     * warm-up (one of them with ~10 s between its two) and recorded a camera rate of 0 fps,
+     * then ran at 15-31 fps for the rest of the session.
+     */
+    const video = this.tracker.video;
+    if (video && video.readyState >= 2) {
+      try {
+        if (this.landmarker.detectFace) this.landmarker.detectFace(video, performance.now());
+        else this.landmarker.detect(video, performance.now());
+      } catch (err) {
+        // A failed warm-up detection is only a missed optimisation; the frame loop will pay it.
+        console.warn("cook-off recorder: warm-up detection failed:", err);
+      }
+    }
   };
 
   /**

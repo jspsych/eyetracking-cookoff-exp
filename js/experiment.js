@@ -19,6 +19,8 @@
 
   /** How long the recorder runs on a live camera before its frame rate is believed. */
   const WARMUP_MS = 3000;
+  /** How long the camera's frame rate is measured for, before the encoder is timed. */
+  const CAMERA_MEASURE_MS = 1500;
 
   /** Page-level state the plugins and the scoreboards read. */
   const Cookoff = (global.Cookoff = {
@@ -124,7 +126,7 @@
     pilot,
     ...prolific,
     experiment: "eyetracking-cookoff",
-    version: "1.0.0",
+    version: config.version,
     user_agent: navigator.userAgent,
     screen_width: window.screen.width,
     screen_height: window.screen.height,
@@ -576,6 +578,63 @@
     },
   };
 
+  const median = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+
+  /**
+   * The camera's delivered frame rate, from the video element's own frame counter.
+   *
+   * Independent of any frame loop: `presentedFrames` and `mediaTime` count what the camera
+   * delivered, so a page that stalls for a moment does not read as a slow camera. Null when the
+   * browser has no `requestVideoFrameCallback` (Firefox before 132), or too few frames arrived.
+   */
+  function measureCameraFps(video, durationMs) {
+    if (!video || !video.requestVideoFrameCallback) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let first = null;
+      let last = null;
+      let finished = false;
+      const onFrame = (now, meta) => {
+        if (finished) return;
+        if (!first) first = meta;
+        last = meta;
+        video.requestVideoFrameCallback(onFrame);
+      };
+      video.requestVideoFrameCallback(onFrame);
+      setTimeout(() => {
+        finished = true;
+        const frames = first && last ? last.presentedFrames - first.presentedFrames : 0;
+        const seconds = first && last ? last.mediaTime - first.mediaTime : 0;
+        resolve(frames >= 3 && seconds > 0 ? frames / seconds : null);
+      }, durationMs);
+    });
+  }
+
+  /**
+   * The longest encode that can run inline on this machine.
+   *
+   * An inline encode has to keep up with the camera, so the limit is a share of one camera
+   * frame, not a fixed number: 85% of 67 ms on a 15 fps webcam, which is most of them, and
+   * 85% of 33 ms at 30 fps. The share is high because on WebGPU the encode runs on the GPU,
+   * pipelined against the frame loop's CPU work. The first pilot bears it out: five sessions
+   * that encoded in 30-54 ms were deferred under a flat 30 ms limit, yet saccade.js's own live
+   * tracker ran at the camera's full 15.6 fps on every one of them.
+   *
+   * On wasm the encode runs on the main thread instead, where a slow one delays everything else
+   * on the page, key presses included; that keeps the flat limit. So does an unknown camera rate.
+   */
+  function inlineLimitMs(provider, cameraFps) {
+    const settings = config.encoder;
+    if (provider !== "webgpu" || !cameraFps) return settings.inline_max_ms;
+    return Math.min(
+      settings.inline_ceiling_ms,
+      Math.max(settings.inline_max_ms, (settings.inline_frame_share * 1000) / cameraFps),
+    );
+  }
+
   /**
    * Decide where the eye encoder runs, and how much of it there is room for.
    *
@@ -598,24 +657,45 @@
     Cookoff.tracker.stop();
     await new Promise((resolve) => setTimeout(resolve, 250));
 
+    // How fast the camera delivers frames, measured on the video itself while nothing else runs.
+    // This is the budget an inline encode has to fit into.
+    const cameraFps = await measureCameraFps(recorder.tracker.video, CAMERA_MEASURE_MS);
+
     // The inline path is already pipelined against the frame loop; time it the same way
-    // saccade.js's own tracker would experience it.
+    // saccade.js's own tracker would experience it. The median of up to `max_samples`, within a
+    // time cap: five samples averaged let one slow inference decide the path, and in the first
+    // pilot two sessions measured 30.0 and 30.2 ms against a 30 ms threshold.
     const crop = new Uint8Array(144 * 36);
     for (let i = 0; i < crop.length; i++) crop[i] = (i * 37) % 256;
     for (let i = 0; i < 5; i++) await Cookoff.model.embed(crop); // WebGPU compiles shaders lazily
+    const samples = [];
     const started = performance.now();
-    const samples = 5;
-    for (let i = 0; i < samples; i++) await Cookoff.model.embed(crop);
-    const inlineMs = (performance.now() - started) / samples;
+    while (
+      samples.length < settings.min_samples ||
+      (samples.length < settings.max_samples &&
+        performance.now() - started < settings.max_sampling_ms)
+    ) {
+      const t0 = performance.now();
+      await Cookoff.model.embed(crop);
+      samples.push(performance.now() - t0);
+    }
+    const inlineMs = median(samples);
+    const limitMs = inlineLimitMs(provider, cameraFps);
 
     const wantsDeferred =
-      settings.mode === "deferred" ||
-      (settings.mode === "auto" && inlineMs > settings.inline_max_ms);
+      settings.mode === "deferred" || (settings.mode === "auto" && inlineMs > limitMs);
+
+    const common = {
+      camera_fps: cameraFps == null ? null : Math.round(cameraFps * 10) / 10,
+      encoder_inline_ms: Math.round(inlineMs * 10) / 10,
+      encoder_inline_samples: samples.length,
+      encoder_inline_limit_ms: Math.round(limitMs * 10) / 10,
+    };
 
     if (!wantsDeferred) {
       return {
+        ...common,
         encoder_mode: "inline",
-        encoder_inline_ms: Math.round(inlineMs * 10) / 10,
         encoder_provider: provider,
         encoder_budget_per_station: null,
       };
@@ -643,8 +723,8 @@
       recorder.embedder = embedder;
       Cookoff.embedder = embedder;
       return {
+        ...common,
         encoder_mode: "deferred",
-        encoder_inline_ms: Math.round(inlineMs * 10) / 10,
         encoder_worker_ms: Math.round(workerMs * 10) / 10,
         encoder_provider: "wasm-worker",
         encoder_budget_per_station: budget,
@@ -655,8 +735,8 @@
       console.error("cook-off: the embed worker would not start; staying inline.", error);
       embedder.dispose();
       return {
+        ...common,
         encoder_mode: "inline-fallback",
-        encoder_inline_ms: Math.round(inlineMs * 10) / 10,
         encoder_provider: provider,
         encoder_budget_per_station: null,
         encoder_worker_error: String((error && error.message) || error),

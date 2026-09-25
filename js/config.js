@@ -3,6 +3,18 @@
  */
 window.CookoffConfig = {
   /**
+   * The experiment's version: on every row as `version`, and in the file name
+   * (`cookoff_v1.1.0_<participant>_<timestamp>.json`), so sessions from different versions sort
+   * apart without opening them. Bump it whenever a change alters what gets recorded or how.
+   *
+   * 1.0.0  the first Prolific pilot (file names without a version).
+   * 1.1.0  MediaPipe set up before the warm-up, so `warmup_fps` no longer reads 0 on slow
+   *        machines; the camera's own frame rate recorded as `camera_fps`; the inline-encoder
+   *        limit a share of one camera frame, not a flat 30 ms.
+   */
+  version: "1.1.0",
+
+  /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js
    * is not on npm yet — `scripts/sync-saccade.sh` puts it there. MediaPipe and ONNX Runtime
    * come from saccade.js's own pinned CDN defaults; set `mediapipeWasmUrl`, `faceLandmarkerUrl`
@@ -79,9 +91,23 @@ window.CookoffConfig = {
   encoder: {
     /** Force a path, for testing: "auto", "inline" or "deferred". */
     mode: "auto",
-    /** Above this measured encode cost, in ms, the encoder is deferred to the worker. Roughly
-     *  one camera frame: slower than this and it cannot keep up inline whatever we do. */
+    /**
+     * On WebGPU, the encoder runs inline if its measured cost fits in this share of one camera
+     * frame, with the frame rate measured on the camera itself: about 57 ms on a 15 fps webcam,
+     * 28 ms at 30 fps. See `inlineLimitMs` in experiment.js for why the share is this high.
+     */
+    inline_frame_share: 0.85,
+    /** Never inline above this, however slow the camera: a lower frame rate is often a
+     *  measurement that came up short, not a camera. */
+    inline_ceiling_ms: 80,
+    /** The limit on wasm, where the encode runs on the main thread, and whenever the camera's
+     *  frame rate could not be measured. Also the floor of the WebGPU limit. */
     inline_max_ms: 30,
+    /** Timing the inline encode: the median of at least `min_samples` and at most `max_samples`
+     *  inferences, stopping after `max_sampling_ms` once the minimum is met. */
+    min_samples: 5,
+    max_samples: 15,
+    max_sampling_ms: 1500,
     /** Fraction of a station's wall-clock time the worker is assumed to get. Below 1 because
      *  the machine is also running the camera, MediaPipe and the page. */
     worker_share: 0.85,

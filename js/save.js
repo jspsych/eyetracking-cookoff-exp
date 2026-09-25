@@ -94,10 +94,18 @@
     throw lastError;
   }
 
-  /** The session's filename: `<prefix>_<participant>_<timestamp>.json`. */
+  /**
+   * The session's filename: `<prefix>_v<version>_<participant>_<timestamp>.json`.
+   *
+   * The version is the experiment's (`version` in config.js, on every row), so files from
+   * different versions of the experiment sort apart by name alone.
+   */
   function filenameFor(jsPsych, config, prefix) {
-    const id = jsPsych.data.get().select("participant_id").values[0] || "anon";
-    return `${prefix || config.filename_prefix || "cookoff"}_${id}_${timestamp()}.json`;
+    const data = jsPsych.data.get();
+    const id = data.select("participant_id").values[0] || "anon";
+    const version = data.select("version").values[0];
+    const tag = version ? `_v${version}` : "";
+    return `${prefix || config.filename_prefix || "cookoff"}${tag}_${id}_${timestamp()}.json`;
   }
 
   /**
