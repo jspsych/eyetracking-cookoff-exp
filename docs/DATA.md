@@ -250,8 +250,8 @@ row each. Unlike `deferred`, the embeddings are there when the row is written, a
 encoded too (so saccade.js latency can be timed), and no frame is ever left as a raw crop.
 
 The frames the GPU had no time for during a station are kept in memory and encoded in the
-downtime: between blocks, during the end questions, and on the "finishing up" screen, within the
-same deadlines as the deferred worker. Before saving, those embeddings are merged into each
+downtime: during the fixed break between blocks (`break_ms`, 10 s), during the end questions,
+and on the "finishing up" screen before saving (up to `drain_ms_at_end`). Before saving, those embeddings are merged into each
 station's row, so `embedded_frames` covers both, in frame order; `n_backfilled` on a row says how
 many of its frames were encoded afterwards. On a session row, `frames_embedded` counts the
 backfilled frames and `frames_dropped_unencoded` the ones the deadline left without an embedding

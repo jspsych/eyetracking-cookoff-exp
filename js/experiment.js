@@ -818,38 +818,6 @@
   }
 
   /**
-   * A screen that waits for the encoder's queue to empty.
-   *
-   * Only ever shown when the encoder was deferred and is behind. The deadline is what keeps it
-   * from being an open-ended wait: whatever is still queued when it expires has its raw crops
-   * written into the data instead, which costs bytes rather than frames.
-   */
-  function drainScreen(deadlineMs, heading) {
-    return {
-      type: jsPsychHtmlKeyboardResponse,
-      stimulus: `
-        <div class="ck-card">
-          <h1>${heading}</h1>
-          <p class="ck-status" id="ck-drain-status">Finishing up…</p>
-          <div class="ck-bar"><div id="ck-drain-fill"></div></div>
-        </div>`,
-      choices: "NO_KEYS",
-      on_load: async () => {
-        const embedder = Cookoff.embedder;
-        if (!embedder || embedder.pending() === 0) return jsPsych.finishTrial({ drained: 0 });
-
-        const status = document.getElementById("ck-drain-status");
-        const fill = document.getElementById("ck-drain-fill");
-        const result = await embedder.drain(deadlineMs, (left, total) => {
-          if (fill) fill.style.width = `${Math.round((1 - left / Math.max(1, total)) * 100)}%`;
-          if (status) status.textContent = `Finishing up… (${left} left)`;
-        });
-        jsPsych.finishTrial({ drained: result.left === 0, left_queued: result.left });
-      },
-    };
-  }
-
-  /**
    * Load the recorder's own face mesh and run it for a moment on a live camera.
    *
    * This is the machine check. The recorder does strictly more work per frame than saccade.js's
@@ -1145,22 +1113,47 @@
      <p>This is the last block, and it takes about half a minute.</p>`,
   );
 
-  /** Between blocks: how the color-change task went. Advanced with the space bar. */
-  function blockReport(blockIndex) {
-    return keyboardScreen(
-      () => `Block ${blockIndex + 1} of ${totalBlocks()} complete`,
-      () => {
+  /**
+   * Between blocks: a fixed rest, the same length for everyone, showing how the color-change
+   * task went. The next block's intro screen waits for the space bar afterwards.
+   *
+   * Fixed, not "until the encoder catches up", so the task's timing is identical on every
+   * machine. It is still when the encoder does most of its catching up: in strided mode the GPU
+   * works through the frames it skipped during the block, and the deferred worker keeps going
+   * in the background, so both get these seconds without anyone waiting on a progress bar.
+   */
+  function blockBreak(blockIndex) {
+    const ms = config.design.break_ms;
+    let timer = null;
+    return {
+      type: jsPsychHtmlKeyboardResponse,
+      choices: "NO_KEYS",
+      trial_duration: ms,
+      stimulus: () => {
         const rows = jsPsych.data
           .get()
           .filter({ trial_type: "cookoff-capture", block: blockIndex, practice: false });
         const probes = rows.filter({ probe: true });
         const hits = probes.filter({ probe_outcome: "hit" }).count();
-        return `<p>You spotted <strong>${hits} of ${probes.count()}</strong> color changes.</p>
-          <p>Please stay in the same position, and continue when you're ready for the next
-          block.</p>`;
+        return `<div class="ck-card">
+          <h1>Block ${blockIndex + 1} of ${totalBlocks()} complete</h1>
+          <p>You spotted <strong>${hits} of ${probes.count()}</strong> color changes.</p>
+          <p>Take a short break. Please stay in the same position.</p>
+          <p class="ck-status">You can continue in <span id="ck-break-left">${Math.ceil(ms / 1000)}</span> seconds.</p>
+        </div>`;
       },
-    );
+      on_load: () => {
+        const started = performance.now();
+        const left = document.getElementById("ck-break-left");
+        timer = setInterval(() => {
+          if (left) left.textContent = Math.max(0, Math.ceil((ms - (performance.now() - started)) / 1000));
+        }, 250);
+      },
+      on_finish: () => clearInterval(timer),
+      data: { trial_kind: "block_break" },
+    };
   }
+
 
   // ---------------------------------------------------------------------------- questions
 
@@ -1258,12 +1251,7 @@
       on_finish: () => jsPsychCookoffCapture.forgetPreviousTarget(),
     });
     timeline.push(staticBlock(block));
-    if (block < config.design.n_blocks - 1) {
-      // The break is already a pause, so it is the cheapest place to let the worker catch up.
-      // Skipped instantly when the queue is empty, which is every WebGPU machine.
-      timeline.push(drainScreen(config.encoder.drain_ms_between_blocks, "One moment"));
-      timeline.push(blockReport(block));
-    }
+    if (block < config.design.n_blocks - 1) timeline.push(blockBreak(block));
   }
 
   if (hasPursuit) timeline.push(movingTargetIntro, ...movingTargetBlock());

@@ -124,9 +124,9 @@ window.CookoffConfig = {
      *  frames a station there is not enough left to average an embedding over. Frames the
      *  worker cannot reach are written out as raw crops and encoded offline. */
     min_frames_per_station: 4,
-    /** How long the participant may be held on a progress bar while the queue drains, in ms.
-     *  Split between the breaks between blocks and the end of the session. */
-    drain_ms_between_blocks: 20000,
+    /** How long the participant may be held on the "finishing up" screen at the end while the
+     *  encoder catches up, in ms. Between blocks there is no wait beyond the fixed break
+     *  (`design.break_ms`), which the encoder uses anyway. */
     drain_ms_at_end: 45000,
   },
 
@@ -174,6 +174,9 @@ window.CookoffConfig = {
      * would make the latencies `saccades.py` measures incomparable with step-task norms.
      */
     station_gap: 0,
+    /** The rest between blocks, in ms: fixed, the same for everyone. It is also when the
+     *  encoder catches up on the frames it skipped during the block. */
+    break_ms: 10000,
   },
 
   /**

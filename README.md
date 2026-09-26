@@ -240,8 +240,9 @@ Three things keep that from quietly becoming a bias:
   `encoder_budget_per_station`), so a thinned session is visible in the data rather than
   inferred from the user agent afterwards.
 
-The queue drains in the background during the task, at the breaks between blocks, and behind a
-progress bar before saving. All of that is skipped instantly on a machine that encoded inline.
+The queue drains in the background during the task, in the fixed 10-second break between blocks
+(the same length for everyone, so the task's timing never depends on the machine), and behind a
+progress bar before saving. The progress bar is skipped instantly on a machine that encoded inline.
 
 Why not just store every frame's crop and encode them all offline? Because the crops do not
 compress: CLAHE amplifies sensor noise into high-entropy detail, gzip gets a ratio of about 1.1,
