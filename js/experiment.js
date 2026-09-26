@@ -588,6 +588,41 @@
     },
   };
 
+  /**
+   * Progress for the "finishing up" wait: a bar and "About N seconds left", not a count of
+   * frames, which means nothing to a participant.
+   *
+   * The estimate is the rate frames are actually finishing at, times what is left, and never
+   * more than the time to the deadline, since the wait stops there whatever is left. Seconds are
+   * rounded up to fives above ten so the number does not jitter, and the bar only moves forward.
+   */
+  function waitProgress(deadlineMs) {
+    const started = performance.now();
+    let shown = 0;
+    return (left, total) => {
+      const status = document.getElementById("ck-save-status");
+      const bar = document.getElementById("ck-save-bar");
+      const fill = document.getElementById("ck-save-fill");
+      if (!status || left === 0) return;
+      const elapsed = performance.now() - started;
+      const done = total - left;
+      const perItem = done >= 3 ? elapsed / done : null;
+      const toDeadline = Math.max(0, deadlineMs - elapsed);
+      const remaining = perItem == null ? toDeadline : Math.min(toDeadline, left * perItem);
+      const fraction = perItem == null ? 0 : Math.min(1, elapsed / Math.max(1, elapsed + remaining));
+      shown = Math.max(shown, fraction);
+      if (bar) bar.hidden = false;
+      if (fill) fill.style.width = `${Math.round(shown * 100)}%`;
+      // No number until the rate is known: the deadline alone would promise the whole wait.
+      const seconds = Math.ceil(remaining / 1000);
+      const said =
+        perItem == null ? "Finishing up."
+        : seconds <= 5 ? "Almost done."
+        : `Finishing up. About ${seconds <= 10 ? seconds : Math.ceil(seconds / 5) * 5} seconds left.`;
+      status.textContent = `${said} Please don't close this tab.`;
+    };
+  }
+
   const median = (values) => {
     const sorted = [...values].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
@@ -1264,7 +1299,8 @@
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `<div class="ck-card"><h1>Saving</h1>
       <p class="ck-status" id="ck-save-status">Saving your data. Please don't close this
-      tab…</p></div>`,
+      tab…</p>
+      <div class="ck-bar" id="ck-save-bar" hidden><div id="ck-save-fill"></div></div></div>`,
     choices: "NO_KEYS",
     on_load: async () => {
       Cookoff.recorder?.stop();
@@ -1274,10 +1310,10 @@
       // the same information, and nothing lost to a slow machine.
       let embedSummary = null;
       if (Cookoff.embedder) {
-        const status = document.getElementById("ck-save-status");
-        const left = await Cookoff.embedder.drain(config.encoder.drain_ms_at_end, (n, total) => {
-          if (status && n > 0) status.textContent = `Finishing up… (${n} of ${total} left)`;
-        });
+        const left = await Cookoff.embedder.drain(
+          config.encoder.drain_ms_at_end,
+          waitProgress(config.encoder.drain_ms_at_end),
+        );
         embedSummary = Cookoff.embedder.finalize(jsPsych, config.privacy.save_eye_crops);
         embedSummary.timedOut = left.timedOut;
         Cookoff.embedder.dispose();
