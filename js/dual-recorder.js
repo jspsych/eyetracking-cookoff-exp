@@ -48,6 +48,8 @@
    */
   const POSE_LEN = 16;
   const NO_POSE = new Float32Array(POSE_LEN).fill(NaN);
+  /** What `eyeImageStats` returns for a frame it could not measure. */
+  const NO_IMAGE_STATS = new Float32Array(3).fill(NaN);
 
   /** Eye-aspect-ratio landmarks, [outer, upper1, upper2, inner, lower2, lower1] per eye. */
   const EAR_RIGHT = [33, 160, 158, 133, 153, 144];
@@ -66,6 +68,53 @@
     const wide = dist(lm[idx[0]], lm[idx[3]], w, h);
     if (wide <= 0) return 0;
     return (dist(lm[idx[1]], lm[idx[5]], w, h) + dist(lm[idx[2]], lm[idx[4]], w, h)) / (2 * wide);
+  }
+
+  /**
+   * Three numbers about the eye strip's image quality: [sharpness, luminance, noise].
+   *
+   * Measured on the 144x36 grayscale strip saccade.js encodes, so they describe exactly the
+   * pixels one tracker saw (WebGazer's patches are cut from the same region of the same frame).
+   *
+   *   sharpness  standard deviation of the 4-neighbour Laplacian. Blur, whether from focus or
+   *              from the eye moving during a long exposure, removes the edges it responds to.
+   *   luminance  mean pixel value, 0-255.
+   *   noise      Immerkaer's (1996) estimate of the sensor noise's standard deviation. Noise
+   *              also raises the Laplacian, so a dim, grainy frame can look "sharp": this is
+   *              what separates the two.
+   *
+   * A few thousand operations a frame, against milliseconds for the face mesh.
+   */
+  function eyeImageStats(px, w, h) {
+    if (!px || px.length < w * h || w < 3 || h < 3) return NO_IMAGE_STATS;
+    let sum = 0;
+    for (let i = 0; i < w * h; i++) sum += px[i];
+    let lapSum = 0;
+    let lapSq = 0;
+    let noiseAbs = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const c = px[i];
+        const n = px[i - w];
+        const s = px[i + w];
+        const e = px[i + 1];
+        const west = px[i - 1];
+        const lap = n + s + e + west - 4 * c;
+        lapSum += lap;
+        lapSq += lap * lap;
+        // Immerkaer's mask [1 -2 1; -2 4 -2; 1 -2 1].
+        const corners = px[i - w - 1] + px[i - w + 1] + px[i + w - 1] + px[i + w + 1];
+        noiseAbs += Math.abs(corners - 2 * (n + s + e + west) + 4 * c);
+      }
+    }
+    const count = (w - 2) * (h - 2);
+    const lapMean = lapSum / count;
+    return new Float32Array([
+      Math.sqrt(Math.max(0, lapSq / count - lapMean * lapMean)),
+      sum / (w * h),
+      Math.sqrt(Math.PI / 2) * noiseAbs / (6 * count),
+    ]);
   }
 
   /**
@@ -186,6 +235,7 @@
       head: [],
       pose: [],
       ear: [],
+      image: [],
       clockSource: null,
       nFaceMissing: 0,
       nDropped: 0,
@@ -364,7 +414,8 @@
   /** Everything that touches the image: one draw, one readback, one detection, two crops. */
   DualRecorder.prototype.capture = function (time) {
     const video = this.tracker.video;
-    const stage = { time, faceFound: false, crop: null, wg: null, head: null, pose: null, ear: null };
+    const stage = { time, faceFound: false, crop: null, image: null, wg: null, head: null,
+                    pose: null, ear: null };
     const W = video.videoWidth;
     const H = video.videoHeight;
     if (!W || !H) return stage;
@@ -389,7 +440,10 @@
     stage.pose = face.pose || NO_POSE;
 
     const crop = global.Saccade.extractEyeCrop(frame, W, H, landmarks);
-    if (crop) stage.crop = crop.data;
+    if (crop) {
+      stage.crop = crop.data;
+      stage.image = eyeImageStats(crop.data, EYE_W, EYE_H);
+    }
 
     stage.wg = this.patcher.patches(frame, W, H, landmarks);
 
@@ -492,6 +546,7 @@
     buffer.head.push(stage.head);
     buffer.pose.push(stage.pose || NO_POSE);
     buffer.ear.push(stage.ear);
+    buffer.image.push(stage.image || NO_IMAGE_STATS);
   };
 
   /** Pack a finished capture window into the fields written to the trial's data row. */
@@ -524,6 +579,7 @@
       head_landmarks: E.encodeF16Rows(buffer.head, HEAD_LANDMARKS.length * 3),
       head_pose: E.encodeF16Rows(buffer.pose, POSE_LEN),
       eye_aspect_ratio: E.encodeF16Rows(buffer.ear, 2),
+      eye_image_stats: E.encodeF16Rows(buffer.image, 3),
     };
   };
 
@@ -544,4 +600,5 @@
 
   global.DualRecorder = DualRecorder;
   global.DualRecorder.HEAD_LANDMARKS = HEAD_LANDMARKS;
+  global.DualRecorder.eyeImageStats = eyeImageStats;
 })(window);

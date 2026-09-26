@@ -119,6 +119,7 @@
       webgazer_eye_box: { type: ParameterType.STRING },
       head_landmarks: { type: ParameterType.STRING },
       eye_aspect_ratio: { type: ParameterType.STRING },
+      eye_image_stats: { type: ParameterType.STRING },
       fps: { type: ParameterType.FLOAT },
       /** The color-change probe, as on a static target. */
       probe: { type: ParameterType.BOOL },

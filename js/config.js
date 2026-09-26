@@ -10,7 +10,8 @@ window.CookoffConfig = {
    * 1.0.0  the first Prolific pilot (file names without a version).
    * 1.1.0  MediaPipe set up before the warm-up, so `warmup_fps` no longer reads 0 on slow
    *        machines; the camera's own frame rate recorded as `camera_fps`; the inline-encoder
-   *        limit a share of one camera frame, not a flat 30 ms.
+   *        limit a share of one camera frame, not a flat 30 ms; per-frame image quality of the
+   *        eye strip (`eye_image_stats`) and the camera's settings (`camera_settings`).
    */
   version: "1.1.0",
 

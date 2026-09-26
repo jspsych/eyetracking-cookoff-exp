@@ -613,6 +613,43 @@
     });
   }
 
+  /** Camera settings worth keeping. Never `deviceId` or `groupId`: those identify the device. */
+  const CAMERA_SETTING_KEYS = [
+    "width", "height", "frameRate", "aspectRatio", "resizeMode", "facingMode",
+    "exposureMode", "exposureTime", "exposureCompensation", "iso",
+    "focusMode", "focusDistance", "whiteBalanceMode", "colorTemperature",
+    "brightness", "contrast", "saturation", "sharpness", "backgroundBlur",
+  ];
+
+  /**
+   * What the browser says the camera is doing, and what it could do.
+   *
+   * The frame rate here is the one the camera was configured for, which can differ from what it
+   * delivers (`camera_fps`): many webcams halve their rate in dim light to lengthen the
+   * exposure, and a long exposure blurs a moving eye. Exposure and focus modes are reported by
+   * Chrome for many cameras and by other browsers rarely; absent keys are simply not recorded.
+   * `backgroundBlur` is the operating system's camera effect, which would soften the image
+   * before either tracker sees it.
+   */
+  function cameraSettings(video) {
+    const stream = video && video.srcObject;
+    const track = stream && stream.getVideoTracks ? stream.getVideoTracks()[0] : null;
+    if (!track) return { camera_settings: null, camera_capabilities: null };
+    const pick = (source) => {
+      if (!source) return null;
+      const out = {};
+      for (const key of CAMERA_SETTING_KEYS) if (source[key] !== undefined) out[key] = source[key];
+      return out;
+    };
+    let capabilities = null;
+    try {
+      capabilities = track.getCapabilities ? pick(track.getCapabilities()) : null;
+    } catch (err) {
+      capabilities = null;
+    }
+    return { camera_settings: pick(track.getSettings()), camera_capabilities: capabilities };
+  }
+
   /**
    * The longest encode that can run inline on this machine.
    *
@@ -845,6 +882,7 @@
           ...measured,
           ...recorder.describe(),
           ridge_predict_us: Math.round(ridgeUs * 1000) / 1000,
+          ...cameraSettings(recorder.tracker.video),
           warmup_fps: Math.round(recorder.fps * 10) / 10,
           warmup_frames: recorder.stats.frames,
           warmup_face_missing: recorder.stats.faceMissing,

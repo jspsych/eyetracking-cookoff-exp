@@ -169,6 +169,8 @@
       head_landmarks: { type: ParameterType.STRING },
       /** Eye aspect ratio, left then right: base64 float16. Low values mean a closing eye. */
       eye_aspect_ratio: { type: ParameterType.STRING },
+      /** The eye strip's sharpness, luminance and noise per frame: base64 float16, stride 3. */
+      eye_image_stats: { type: ParameterType.STRING },
       /** Recorder frame rate at the end of the window. */
       fps: { type: ParameterType.FLOAT },
       /** Whether this target's center changed color, and when, in ms from `capture_onset`. */

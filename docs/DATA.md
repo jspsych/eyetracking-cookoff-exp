@@ -40,6 +40,7 @@ streams may be shorter**; see *Frames with both trackers* below.
 | `head_landmarks` | float16 | 27 | nine landmarks as `(x, y, z)`, normalized |
 | `head_pose` | float16 | 16 | MediaPipe's 4x4 head-pose matrix, column-major; NaN when it gave none |
 | `eye_aspect_ratio` | float16 | 2 | left then right; low means a closing eye |
+| `eye_image_stats` | float16 | 3 | the eye strip's image quality: sharpness (SD of the Laplacian), mean luminance (0-255), and noise (Immerkaer's estimate of the sensor noise SD). NaN where there was no strip. See below |
 
 In Python:
 
@@ -249,6 +250,21 @@ video element itself before anything was timed (null if the browser could not re
 camera frame, between 30 and 80 ms; on wasm, or with no `camera_fps`, it is 30 ms. Sessions
 recorded before these fields existed used a flat 30 ms and the mean of five inferences.
 
+What the camera was doing: `camera_settings`, what the browser reports the camera's track is
+set to, and `camera_capabilities`, the ranges and modes it offers. Both are allow-listed and
+never include the device ID: resolution, `frameRate` (the configured rate; `camera_fps` is the
+delivered one), exposure, focus and white-balance modes and values, image controls, and
+`backgroundBlur` (the operating system's own camera effect, which softens the image before
+either tracker sees it). Chrome reports exposure and focus for many cameras, other browsers
+rarely; keys the browser does not report are absent.
+
+**Image quality, per frame (`eye_image_stats`).** Three numbers from the 144x36 eye strip
+saccade.js encodes, the same region WebGazer's patches come from. *Sharpness* falls when the
+image is blurred, by focus or by the eye moving during a long exposure. It also rises with sensor
+noise and scales with contrast, so read it next to the other two: a dim, noisy frame can score
+as "sharp" as a crisp one. *Noise* is an estimate of the sensor noise's standard deviation, in
+grey levels, which is what separates the two cases.
+
 From the warm-up: `embedding_dim`, `embedding_model` (a string like `eye-embedding@1.0.0`, which
 means the loaded bytes hash-matched that published release; anything else appears as
 `sha256:...`), `execution_provider` (`webgpu` or `wasm`), `landmarker_delegate` (`GPU` or `CPU`),
@@ -259,7 +275,9 @@ means the loaded bytes hash-matched that published release; anything else appear
 be thin. In sessions recorded before `camera_fps` existed, a `warmup_fps` of 0 (or a
 `warmup_frames` of 1 or 2) is not a slow camera: MediaPipe's one-time setup ran on the warm-up's
 first frame and blocked the page for the whole window. Use the capture trials' `frame_t`
-spacing for those sessions' real rate. The setup now runs while the recorder loads. Decide the exclusion threshold before collecting. For what *live* tracking would have
+spacing for those sessions' real rate. The setup now runs while the recorder loads.
+
+Decide the exclusion threshold before collecting. For what *live* tracking would have
 managed, use `saccade_live_fps_median` instead — see the next section.
 
 ## Could this machine have tracked live?
