@@ -763,6 +763,9 @@
 
     if (wantsStrided) {
       recorder.strided = true;
+      // The frames the GPU has no time for during a station are encoded in the downtime: the
+      // drain screens between blocks and at the end talk to this as they would to the worker.
+      Cookoff.embedder = recorder.backfill;
       return {
         ...common,
         encoder_mode: "strided",
@@ -879,6 +882,7 @@
           tracker: Cookoff.tracker,
           model: Cookoff.model,
           assets: config.assets,
+          backlogMax: config.encoder.backlog_max_frames,
         });
         status.textContent = "Loading…";
         await recorder.init();

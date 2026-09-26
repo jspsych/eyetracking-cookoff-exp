@@ -247,8 +247,16 @@ is what the budget was computed from), `encoder_provider`, `encoder_budget_per_s
 GPU and embeds a frame whenever it is free, so a capture trial's `embedded_frames` lists the
 frames that got an embedding, in order, with `saccade_embedding` and `saccade_weight` holding one
 row each. Unlike `deferred`, the embeddings are there when the row is written, arrival frames are
-encoded too (so saccade.js latency can be timed), and no frame is ever left as a raw crop. The
-embedding rate is whatever that GPU sustained: `len(embedded_frames)` over the window's duration.
+encoded too (so saccade.js latency can be timed), and no frame is ever left as a raw crop.
+
+The frames the GPU had no time for during a station are kept in memory and encoded in the
+downtime: between blocks, during the end questions, and on the "finishing up" screen, within the
+same deadlines as the deferred worker. Before saving, those embeddings are merged into each
+station's row, so `embedded_frames` covers both, in frame order; `n_backfilled` on a row says how
+many of its frames were encoded afterwards. On a session row, `frames_embedded` counts the
+backfilled frames and `frames_dropped_unencoded` the ones the deadline left without an embedding
+(their crops are discarded, never saved). What live tracking on that machine would have produced
+is the live part: `len(embedded_frames) - n_backfilled`.
 
 `encoder_forced` is the path a pilot forced from the URL (`?encoder=strided`, `inline` or
 `deferred`), and null when the machine chose its own. Never set for a Prolific participant.

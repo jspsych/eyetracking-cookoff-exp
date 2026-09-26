@@ -169,6 +169,19 @@
      */
     this.strided = false;
     this.stridedInflight = null;
+
+    /*
+     * Strided only: the frames the encoder was too busy for, kept so the GPU can encode them
+     * later, whenever no capture window is open (between blocks, during the end questions, and
+     * on the "finishing up" screen). Each holds its eye crop, about 5 KB, in memory only: the
+     * crops are never written into the data. `backfill` is the drain/finalize interface the
+     * experiment already uses for the deferred worker, so the same screens serve both.
+     */
+    this.backlog = [];
+    this.backlogMax = opts.backlogMax || 8000;
+    this.backlogOverflow = 0;
+    this.backfilled = new Map(); // station_id -> [{frame, embedding, weight}]
+    this.backfill = makeBackfill(this);
   }
 
   /** Loads this recorder's own MediaPipe face mesh. The camera and the encoder come from the tracker. */
@@ -411,7 +424,13 @@
     // not wait for it, so WebGazer keeps every frame at the camera's rate.
     if (this.strided) {
       const frame = this.record(stage, null, null);
-      if (frame >= 0 && !this.stridedInflight && stage.crop) this.encodeStrided(stage, frame);
+      if (frame >= 0 && stage.crop) {
+        if (!this.stridedInflight) this.encodeStrided(stage, frame);
+        else this.queueBacklog(stage.crop, frame);
+      } else if (!this.buffer) {
+        // Between capture windows the GPU works through the backlog, one frame at a time.
+        this.pumpBackfill();
+      }
       return;
     }
 
@@ -503,6 +522,42 @@
       .finally(() => {
         this.stridedInflight = null;
       });
+  };
+
+  /** Keep a frame the encoder was too busy for, to encode during downtime. */
+  DualRecorder.prototype.queueBacklog = function (crop, frame) {
+    const stationId = this.buffer ? this.buffer.stationId : null;
+    if (stationId == null) return; // nowhere to write it back to
+    if (this.backlog.length >= this.backlogMax) {
+      this.backlogOverflow++;
+      return;
+    }
+    this.backlog.push({ stationId, frame, crop });
+  };
+
+  /**
+   * Start encoding the oldest backlogged frame, if the encoder is free. The one in-flight slot
+   * is shared with the live strided encode, so the two never run at once: they share the
+   * model's single input tensor.
+   */
+  DualRecorder.prototype.pumpBackfill = function () {
+    if (this.stridedInflight || this.backlog.length === 0) return false;
+    const item = this.backlog.shift();
+    this.stridedInflight = this.model
+      .embed(item.crop)
+      .then((result) => {
+        const list = this.backfilled.get(item.stationId) || [];
+        list.push({ frame: item.frame, embedding: result.embedding, weight: result.weight });
+        this.backfilled.set(item.stationId, list);
+      })
+      .catch((err) => {
+        this.stats.errors++;
+        if (this.stats.errors === 1) console.error("cook-off recorder backfill failed:", err);
+      })
+      .finally(() => {
+        this.stridedInflight = null;
+      });
+    return true;
   };
 
   DualRecorder.prototype.retire = async function (pending) {
@@ -659,6 +714,83 @@
       eye_crop: [EYE_W, EYE_H],
     };
   };
+
+  /**
+   * The strided backlog, behind the same interface as DeferredEmbedder: `pending`, `drain`,
+   * `finalize` and `dispose`. The experiment's between-block and end-of-session drain screens
+   * call these without knowing which encoder they are talking to.
+   */
+  function makeBackfill(recorder) {
+    return {
+      pending() {
+        return recorder.backlog.length + (recorder.stridedInflight ? 1 : 0);
+      },
+
+      /** Encode the backlog until it is empty or `deadlineMs` passes. */
+      async drain(deadlineMs, onProgress) {
+        const started = performance.now();
+        const total = this.pending();
+        for (;;) {
+          const left = this.pending();
+          if (onProgress) onProgress(left, total);
+          if (left === 0) return { left: 0, timedOut: false };
+          if (performance.now() - started > deadlineMs) return { left, timedOut: true };
+          recorder.pumpBackfill();
+          if (recorder.stridedInflight) await recorder.stridedInflight;
+          else await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      },
+
+      /**
+       * Merge the backfilled embeddings into each station's row, found by `station_id` as the
+       * deferred path does: the stored trial objects are mutated in place. Frames still in the
+       * backlog are dropped, never written out as crops.
+       */
+      finalize(jsPsych) {
+        const E = global.CookoffEncoding;
+        const dim = recorder.embeddingDim;
+        const summary = {
+          stations: 0,
+          embedded: 0,
+          asCrops: 0,
+          cropsDropped: recorder.backlog.length + recorder.backlogOverflow,
+        };
+        for (const [stationId, extra] of recorder.backfilled) {
+          const rows = jsPsych.data.get().filter({ station_id: stationId }).values();
+          if (rows.length === 0) continue;
+          const row = rows[0];
+          const frames = (row.embedded_frames || []).slice();
+          const embeddings = row.saccade_embedding ? E.decodeF16(row.saccade_embedding, dim) : [];
+          const weights = row.saccade_weight ? E.decodeF16(row.saccade_weight, 1) : [];
+          const merged = frames.map((frame, k) => ({
+            frame,
+            embedding: embeddings[k],
+            weight: weights[k] ? weights[k][0] : NaN,
+          }));
+          const have = new Set(frames);
+          for (const r of extra) if (!have.has(r.frame)) merged.push(r);
+          merged.sort((a, b) => a.frame - b.frame);
+          row.embedded_frames = merged.map((r) => r.frame);
+          row.saccade_embedding = E.encodeF16Rows(merged.map((r) => r.embedding), dim);
+          row.saccade_weight = E.encodeF16Rows(
+            merged.map((r) => [r.weight == null ? NaN : r.weight]),
+            1,
+          );
+          row.n_backfilled = extra.length;
+          summary.stations++;
+          summary.embedded += extra.length;
+        }
+        recorder.backfilled.clear();
+        recorder.backlog = [];
+        return summary;
+      },
+
+      dispose() {
+        recorder.backfilled.clear();
+        recorder.backlog = [];
+      },
+    };
+  }
 
   global.DualRecorder = DualRecorder;
   global.DualRecorder.HEAD_LANDMARKS = HEAD_LANDMARKS;

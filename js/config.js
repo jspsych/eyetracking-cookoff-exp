@@ -14,7 +14,8 @@ window.CookoffConfig = {
    *        eye strip (`eye_image_stats`) and the camera's settings (`camera_settings`).
    * 1.2.0  "strided" encoder mode: on WebGPU too slow for every frame, the encoder stays on
    *        the GPU and embeds whichever frames it has time for, instead of moving to the CPU
-   *        worker. The worker is now only for machines without WebGPU.
+   *        worker, and encodes the rest in the downtime (block breaks, the end questions, the
+   *        "finishing up" screen). The worker is now only for machines without WebGPU.
    */
   version: "1.2.0",
 
@@ -113,6 +114,9 @@ window.CookoffConfig = {
     min_samples: 5,
     max_samples: 15,
     max_sampling_ms: 1500,
+    /** Strided mode: the most skipped frames kept for encoding in the downtime. Each holds a
+     *  5 KB eye crop in memory only, so 8000 is about 40 MB; past it, frames go unembedded. */
+    backlog_max_frames: 8000,
     /** Fraction of a station's wall-clock time the worker is assumed to get. Below 1 because
      *  the machine is also running the camera, MediaPipe and the page. */
     worker_share: 0.85,
