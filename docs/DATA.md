@@ -238,10 +238,20 @@ From the timing measurement: `timing_lag_ms`, `timing_verdict` (`OK` / `INCONCLU
 `UNRELIABLE`), `timing_plateau_width_ms` (the uncertainty on the lag — one camera frame or less
 is expected), `timing_camera_period_ms`.
 
-About the encoder: `encoder_mode` (`inline`, `deferred`, or `inline-fallback` when the worker
-would not start), `encoder_inline_ms` and `encoder_worker_ms` (measured on this machine, which
+About the encoder: `encoder_mode` (`inline`, `strided`, `deferred`, or `inline-fallback` when
+the worker would not start), `encoder_inline_ms` and `encoder_worker_ms` (measured on this machine, which
 is what the budget was computed from), `encoder_provider`, `encoder_budget_per_station`,
 `frames_embedded`, `frames_left_as_crops`, and `embed_queue_timed_out`.
+
+`strided` (from version 1.2.0) is WebGPU that cannot encode every frame: the encoder stays on the
+GPU and embeds a frame whenever it is free, so a capture trial's `embedded_frames` lists the
+frames that got an embedding, in order, with `saccade_embedding` and `saccade_weight` holding one
+row each. Unlike `deferred`, the embeddings are there when the row is written, arrival frames are
+encoded too (so saccade.js latency can be timed), and no frame is ever left as a raw crop. The
+embedding rate is whatever that GPU sustained: `len(embedded_frames)` over the window's duration.
+
+`encoder_forced` is the path a pilot forced from the URL (`?encoder=strided`, `inline` or
+`deferred`), and null when the machine chose its own. Never set for a Prolific participant.
 
 What the mode was decided from: `camera_fps`, the camera's delivered frame rate measured on the
 video element itself before anything was timed (null if the browser could not report it);

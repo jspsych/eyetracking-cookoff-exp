@@ -159,6 +159,16 @@
      * running it inline would cost frames rather than merely time. See DeferredEmbedder.
      */
     this.embedder = opts.embedder || null;
+
+    /*
+     * When true, the encoder stays on the GPU but runs only when it is free: every frame is
+     * recorded at once with WebGazer's features, and a frame gets an embedding if the encoder
+     * was idle when it arrived. The embedding rate then settles at whatever this GPU sustains,
+     * typically 10-20 a second on integrated graphics, instead of the three or four a second
+     * the CPU worker manages, and nothing waits for it. See `chooseEncoder` in experiment.js.
+     */
+    this.strided = false;
+    this.stridedInflight = null;
   }
 
   /** Loads this recorder's own MediaPipe face mesh. The camera and the encoder come from the tracker. */
@@ -249,6 +259,8 @@
       onset: opts.onset != null ? opts.onset : performance.now(),
       embedFrom: opts.embedFrom === undefined ? 0 : opts.embedFrom,
       eligible: 0,
+      // Strided only: {frame, embedding, weight} as each encode comes back, in any order.
+      strided: [],
     };
     return this.buffer;
   };
@@ -281,6 +293,8 @@
     const pending = this.inflight;
     this.inflight = null;
     if (pending) await this.retire(pending);
+    const strided = this.stridedInflight;
+    if (strided) await strided;
   };
 
   DualRecorder.prototype.schedule = function () {
@@ -393,6 +407,14 @@
       return;
     }
 
+    // Strided: record the frame now, and start an encode only if none is running. The loop does
+    // not wait for it, so WebGazer keeps every frame at the camera's rate.
+    if (this.strided) {
+      const frame = this.record(stage, null, null);
+      if (frame >= 0 && !this.stridedInflight && stage.crop) this.encodeStrided(stage, frame);
+      return;
+    }
+
     // Retire the previous frame's encode before starting this one: one inference in flight.
     const pending = this.inflight;
     this.inflight = null;
@@ -462,6 +484,27 @@
     return stage;
   };
 
+  /**
+   * One strided encode: the embedding goes back into the capture window it was started in, at
+   * the frame it came from, whenever it arrives. A window that has already been packed simply
+   * never sees it; the capture trials `flush()` first, so in practice none is lost.
+   */
+  DualRecorder.prototype.encodeStrided = function (stage, frame) {
+    const buffer = this.buffer;
+    this.stridedInflight = this.model
+      .embed(stage.crop)
+      .then((result) => {
+        buffer.strided.push({ frame, embedding: result.embedding, weight: result.weight });
+      })
+      .catch((err) => {
+        this.stats.errors++;
+        if (this.stats.errors === 1) console.error("cook-off recorder encode failed:", err);
+      })
+      .finally(() => {
+        this.stridedInflight = null;
+      });
+  };
+
   DualRecorder.prototype.retire = async function (pending) {
     let embedding = null;
     let weight = null;
@@ -489,7 +532,8 @@
     // A frame counts when both trackers got what they need from it. Inline, that means the
     // embedding came back; deferred, it means there is a crop to encode later. Either way the
     // row carries WebGazer's features, which are cheap enough to never skip.
-    const usable = this.embedder ? !!(stage.crop && stage.wg) : !!(embedding && stage.wg);
+    const usable =
+      this.embedder || this.strided ? !!(stage.crop && stage.wg) : !!(embedding && stage.wg);
     this.lastFrame = {
       time: stage.time,
       faceFound: stage.faceFound,
@@ -501,13 +545,13 @@
     if (this.onFrame) this.onFrame(this.lastFrame);
 
     const buffer = this.buffer;
-    if (!buffer) return;
+    if (!buffer) return -1;
 
     buffer.nDropped += stage.time.dropped;
     if (!stage.faceFound) buffer.nFaceMissing++;
     if (!usable) {
       if (stage.faceFound) buffer.nSkipped++;
-      return;
+      return -1;
     }
     if (buffer.clockSource === null) buffer.clockSource = stage.time.source;
 
@@ -527,7 +571,7 @@
         buffer.queued.push(frameIndex);
         this.embedder.submit(buffer.stationId, frameIndex, stage.crop);
       }
-    } else {
+    } else if (!this.strided) {
       buffer.embedding.push(embedding);
       buffer.weight.push([weight == null ? NaN : weight]);
     }
@@ -547,6 +591,7 @@
     buffer.pose.push(stage.pose || NO_POSE);
     buffer.ear.push(stage.ear);
     buffer.image.push(stage.image || NO_IMAGE_STATS);
+    return frameIndex;
   };
 
   /** Pack a finished capture window into the fields written to the trial's data row. */
@@ -560,6 +605,27 @@
   DualRecorder.prototype.pack = function (buffer, trialStart) {
     const E = global.CookoffEncoding;
     const deferred = !!this.embedder;
+    const strided = (buffer.strided || []).slice().sort((a, b) => a.frame - b.frame);
+    if (this.strided) {
+      return Object.assign(this.packCommon(buffer, trialStart, E), {
+        embedded_frames: strided.map((r) => r.frame),
+        saccade_embedding: E.encodeF16Rows(strided.map((r) => r.embedding), this.embeddingDim),
+        saccade_weight: E.encodeF16Rows(
+          strided.map((r) => [r.weight == null ? NaN : r.weight]),
+          1,
+        ),
+      });
+    }
+    return Object.assign(this.packCommon(buffer, trialStart, E), {
+      // null means "every frame", which is what the inline path produces.
+      embedded_frames: deferred ? buffer.queued.slice() : null,
+      saccade_embedding: deferred ? null : E.encodeF16Rows(buffer.embedding, this.embeddingDim),
+      saccade_weight: deferred ? null : E.encodeF16Rows(buffer.weight, 1),
+    });
+  };
+
+  /** The fields every encoder path writes the same way. */
+  DualRecorder.prototype.packCommon = function (buffer, trialStart, E) {
     return {
       n_frames: buffer.t.length,
       frame_t: buffer.t.map((t) => Math.round((t - trialStart) * 10) / 10),
@@ -567,10 +633,6 @@
       n_face_missing: buffer.nFaceMissing,
       n_camera_dropped: buffer.nDropped,
       n_skipped: buffer.nSkipped,
-      // null means "every frame", which is what the inline path produces.
-      embedded_frames: deferred ? buffer.queued.slice() : null,
-      saccade_embedding: deferred ? null : E.encodeF16Rows(buffer.embedding, this.embeddingDim),
-      saccade_weight: deferred ? null : E.encodeF16Rows(buffer.weight, 1),
       crop_frames: null,
       saccade_crop: null,
       webgazer_gray_left: E.encodeU8Rows(buffer.wgLeft, global.CookoffWebGazer.PATCH_LEN),

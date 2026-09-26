@@ -12,8 +12,11 @@ window.CookoffConfig = {
    *        machines; the camera's own frame rate recorded as `camera_fps`; the inline-encoder
    *        limit a share of one camera frame, not a flat 30 ms; per-frame image quality of the
    *        eye strip (`eye_image_stats`) and the camera's settings (`camera_settings`).
+   * 1.2.0  "strided" encoder mode: on WebGPU too slow for every frame, the encoder stays on
+   *        the GPU and embeds whichever frames it has time for, instead of moving to the CPU
+   *        worker. The worker is now only for machines without WebGPU.
    */
-  version: "1.1.0",
+  version: "1.2.0",
 
   /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js
@@ -90,7 +93,8 @@ window.CookoffConfig = {
    * a head-to-head comparison has to run on those.
    */
   encoder: {
-    /** Force a path, for testing: "auto", "inline" or "deferred". */
+    /** Force a path, for testing: "auto", "inline", "strided" or "deferred". "strided" on a
+     *  machine without WebGPU would run the CPU encoder on the page itself; test it on WebGPU. */
     mode: "auto",
     /**
      * On WebGPU, the encoder runs inline if its measured cost fits in this share of one camera

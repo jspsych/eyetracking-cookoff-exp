@@ -121,12 +121,22 @@
   const pilot = !prolific.prolific_pid;
   if (pilot) config.save.filename_prefix = `pilot_${config.save.filename_prefix || "cookoff"}`;
 
+  // A pilot can force the encoder path from the URL (`?encoder=strided`), to try a path this
+  // machine would not choose by itself: a fast laptop never goes strided. Never for a Prolific
+  // participant, and recorded as `encoder_forced` so a forced session is never mistaken for one
+  // that chose its own path.
+  const forcedEncoder = new URLSearchParams(window.location.search).get("encoder");
+  const encoderForced =
+    pilot && ["inline", "strided", "deferred"].includes(forcedEncoder) ? forcedEncoder : null;
+  if (encoderForced) config.encoder.mode = encoderForced;
+
   jsPsych.data.addProperties({
     participant_id: participantId,
     pilot,
     ...prolific,
     experiment: "eyetracking-cookoff",
     version: config.version,
+    encoder_forced: encoderForced,
     user_agent: navigator.userAgent,
     screen_width: window.screen.width,
     screen_height: window.screen.height,
@@ -719,8 +729,21 @@
     const inlineMs = median(samples);
     const limitMs = inlineLimitMs(provider, cameraFps);
 
-    const wantsDeferred =
-      settings.mode === "deferred" || (settings.mode === "auto" && inlineMs > limitMs);
+    /*
+     * Three paths, fastest first.
+     *
+     *   inline    the encode fits in a camera frame: every frame gets an embedding.
+     *   strided   WebGPU, but too slow for every frame: the encode stays on the GPU and runs
+     *             whenever it is free, so frames get embeddings at the rate this GPU sustains.
+     *             This is most participants: in the first pilot, integrated graphics took
+     *             30-330 ms a frame, and moving that to the CPU worker made it 2-9x slower.
+     *   deferred  no WebGPU: the encode runs on the CPU, in a worker so it cannot stall the
+     *             page, on a per-station budget.
+     */
+    const overLimit = inlineMs > limitMs;
+    const wantsInline = settings.mode === "inline" || (settings.mode === "auto" && !overLimit);
+    const wantsStrided =
+      settings.mode === "strided" || (settings.mode === "auto" && provider === "webgpu");
 
     const common = {
       camera_fps: cameraFps == null ? null : Math.round(cameraFps * 10) / 10,
@@ -729,10 +752,20 @@
       encoder_inline_limit_ms: Math.round(limitMs * 10) / 10,
     };
 
-    if (!wantsDeferred) {
+    if (wantsInline) {
       return {
         ...common,
         encoder_mode: "inline",
+        encoder_provider: provider,
+        encoder_budget_per_station: null,
+      };
+    }
+
+    if (wantsStrided) {
+      recorder.strided = true;
+      return {
+        ...common,
+        encoder_mode: "strided",
         encoder_provider: provider,
         encoder_budget_per_station: null,
       };
