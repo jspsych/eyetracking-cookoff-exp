@@ -252,11 +252,13 @@ encoded too (so saccade.js latency can be timed), and no frame is ever left as a
 The frames the GPU had no time for during a station are kept in memory and encoded in the
 downtime: during the fixed break between blocks (`break_ms`, 10 s), during the end questions,
 and on the "finishing up" screen before saving (up to `drain_ms_at_end`). Before saving, those embeddings are merged into each
-station's row, so `embedded_frames` covers both, in frame order; `n_backfilled` on a row says how
-many of its frames were encoded afterwards. On a session row, `frames_embedded` counts the
+station's row, so `embedded_frames` covers both, in frame order; `backfilled_frames` lists the
+frames that were encoded afterwards (empty if none), and `n_backfilled` counts them. The frames
+in `embedded_frames` but not in `backfilled_frames` are the ones live tracking had. Rows from
+inline and deferred sessions carry `backfilled_frames: null`. On a session row, `frames_embedded` counts the
 backfilled frames and `frames_dropped_unencoded` the ones the deadline left without an embedding
 (their crops are discarded, never saved). What live tracking on that machine would have produced
-is the live part: `len(embedded_frames) - n_backfilled`.
+is the live part: `embedded_frames` minus `backfilled_frames`.
 
 `encoder_forced` is the path a pilot forced from the URL (`?encoder=strided`, `inline` or
 `deferred`), and null when the machine chose its own. Never set for a Prolific participant.

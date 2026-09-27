@@ -669,11 +669,14 @@
           strided.map((r) => [r.weight == null ? NaN : r.weight]),
           1,
         ),
+        // Filled in by the backlog's finalize; empty until then, and if nothing was owed.
+        backfilled_frames: [],
       });
     }
     return Object.assign(this.packCommon(buffer, trialStart, E), {
       // null means "every frame", which is what the inline path produces.
       embedded_frames: deferred ? buffer.queued.slice() : null,
+      backfilled_frames: null,
       saccade_embedding: deferred ? null : E.encodeF16Rows(buffer.embedding, this.embeddingDim),
       saccade_weight: deferred ? null : E.encodeF16Rows(buffer.weight, 1),
     });
@@ -768,7 +771,12 @@
             weight: weights[k] ? weights[k][0] : NaN,
           }));
           const have = new Set(frames);
-          for (const r of extra) if (!have.has(r.frame)) merged.push(r);
+          const added = [];
+          for (const r of extra) {
+            if (have.has(r.frame)) continue;
+            merged.push(r);
+            added.push(r.frame);
+          }
           merged.sort((a, b) => a.frame - b.frame);
           row.embedded_frames = merged.map((r) => r.frame);
           row.saccade_embedding = E.encodeF16Rows(merged.map((r) => r.embedding), dim);
@@ -776,7 +784,10 @@
             merged.map((r) => [r.weight == null ? NaN : r.weight]),
             1,
           );
-          row.n_backfilled = extra.length;
+          // Which frames were encoded afterwards, so an analysis can score the frames live
+          // tracking on this machine would have had, and nothing else.
+          row.backfilled_frames = added.sort((a, b) => a - b);
+          row.n_backfilled = added.length;
           summary.stations++;
           summary.embedded += extra.length;
         }

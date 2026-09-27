@@ -169,6 +169,9 @@
       head_landmarks: { type: ParameterType.STRING },
       /** Eye aspect ratio, left then right: base64 float16. Low values mean a closing eye. */
       eye_aspect_ratio: { type: ParameterType.STRING },
+      /** Strided mode: the frames whose embeddings were encoded after the station, in the
+       *  downtime. The rest of `embedded_frames` were encoded live. Null on the other paths. */
+      backfilled_frames: { type: ParameterType.INT, array: true },
       /** The eye strip's sharpness, luminance and noise per frame: base64 float16, stride 3. */
       eye_image_stats: { type: ParameterType.STRING },
       /** Recorder frame rate at the end of the window. */
