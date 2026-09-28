@@ -218,6 +218,9 @@
   function screenOut(reason, heading, explanation) {
     jsPsych.data.addProperties({ screened_out: reason });
     Cookoff.tracker.dispose(); // the camera light should go off with the study
+    // Aborting skips the timeline's own fullscreen exit, and a screen-out after the study went
+    // fullscreen (a failed practice) would otherwise leave the message filling the screen.
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     jsPsych.abortExperiment(`<div class="ck-card"><h1>${heading}</h1>${explanation}
       <div id="ck-screenout-next"><p class="ck-status">Saving…</p></div></div>`);
 
