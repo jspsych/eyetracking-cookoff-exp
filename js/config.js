@@ -355,7 +355,9 @@ window.CookoffConfig = {
    */
   prolific: {
     /** Sent to once the data is saved. */
-    completion_code: "C3GCQAIQ",
+    /** The v1.4.0 main-collection study (6ababc636f45a225919ad812). Batch 1, versions 1.0.0-1.3.3,
+     *  used C3GCQAIQ. */
+    completion_code: "Y90M3IRH",
     /**
      * Sent to by a participant who is screened out: no keyboard, or no face found by the
      * camera. Set up in Prolific as a screen-out code with a fixed payment, or leave empty to
