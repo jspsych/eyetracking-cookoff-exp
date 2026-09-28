@@ -260,6 +260,13 @@ backfilled frames and `frames_dropped_unencoded` the ones the deadline left with
 (their crops are discarded, never saved). What live tracking on that machine would have produced
 is the live part: `embedded_frames` minus `backfilled_frames`.
 
+`cross_origin_isolated` (every row, from 1.3.0) says whether the page was served with the
+COOP/COEP headers that make it cross-origin isolated, as it is from the Vassar server and is
+not from GitHub Pages. Only then can the CPU encoder's worker run more than one thread:
+`encoder_worker_threads` is how many it ran with, and `encoder_worker_threads_requested` how many
+the page asked for (the cores minus two, at most `max_worker_threads`). `encoder_worker_ms` was
+measured with those threads, and the per-station budget was built from it.
+
 `encoder_forced` is the path a pilot forced from the URL (`?encoder=strided`, `inline` or
 `deferred`), and null when the machine chose its own. Never set for a Prolific participant.
 

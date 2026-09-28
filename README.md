@@ -18,6 +18,29 @@ On a machine with no WebGPU that 20 ms becomes one to several hundred on single-
 which is longer than a camera frame. There the encoder moves to a Web Worker and the frame loop
 stops waiting for it; see [Slow machines](#slow-machines).
 
+## Hosting
+
+The study runs from https://cogsciresearch.vassar.edu/eyetracking-cookoff/, not GitHub Pages,
+because that server sends the two headers that make the page *cross-origin isolated*:
+
+    Cross-Origin-Opener-Policy: same-origin
+    Cross-Origin-Embedder-Policy: require-corp
+
+Only an isolated page gives the CPU encoder's worker threads. On the machines that cannot encode
+inline, which is most participants' integrated-graphics laptops, that is the difference between
+four and eight embeddings a station. GitHub Pages cannot send headers, so there the worker runs
+one thread; everything else works the same. `cross_origin_isolated` in the data says which a
+session had.
+
+    scripts/deploy-vassar.sh          # what would change
+    scripts/deploy-vassar.sh --go     # copy it, then check the headers and the version served
+
+The Apache side is `deploy/eyetracking-cookoff.conf`, installed once in `/etc/httpd/conf.d/`;
+it applies to the experiment's directory only. ONNX Runtime is served from `lib/ort/`
+(`scripts/sync-ort.sh`), because a worker's threads can only start from the page's own origin.
+`python3 scripts/serve.py 8791 --isolate` sends the same headers locally, and
+`test/threads-check.html` times the worker at 1, 2 and 4 threads.
+
 ## Running it
 
 saccade.js is not published to npm yet, so the experiment is served from local builds:

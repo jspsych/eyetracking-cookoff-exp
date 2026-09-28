@@ -137,6 +137,7 @@
     experiment: "eyetracking-cookoff",
     version: config.version,
     encoder_forced: encoderForced,
+    cross_origin_isolated: !!window.crossOriginIsolated,
     user_agent: navigator.userAgent,
     screen_width: window.screen.width,
     screen_height: window.screen.height,
@@ -644,19 +645,23 @@
       let finished = false;
       const onFrame = (now, meta) => {
         if (finished) return;
-        if (!first) first = meta;
-        last = meta;
+        const sample = { now, frames: meta.presentedFrames };
+        if (!first) first = sample;
+        last = sample;
         video.requestVideoFrameCallback(onFrame);
       };
       video.requestVideoFrameCallback(onFrame);
       setTimeout(() => {
         finished = true;
-        const frames = first && last ? last.presentedFrames - first.presentedFrames : 0;
-        const seconds = first && last ? last.mediaTime - first.mediaTime : 0;
-        resolve(frames >= 3 && seconds > 0 ? frames / seconds : null);
+        // Frames counted by the video itself, over wall-clock time between the callbacks. Not
+        // over `mediaTime`: in one 1.2.0 session a jump in it read a 15.6 fps camera as 0.
+        const frames = first && last ? last.frames - first.frames : 0;
+        const seconds = first && last ? (last.now - first.now) / 1000 : 0;
+        resolve(frames >= 3 && seconds > 0.2 ? frames / seconds : null);
       }, durationMs);
     });
   }
+
 
   /** Camera settings worth keeping. Never `deviceId` or `groupId`: those identify the device. */
   const CAMERA_SETTING_KEYS = [
@@ -693,6 +698,20 @@
       capabilities = null;
     }
     return { camera_settings: pick(track.getSettings()), camera_capabilities: capabilities };
+  }
+
+  /**
+   * How many threads to give the CPU encoder's worker.
+   *
+   * One unless the page is cross-origin isolated, which is the only way a worker gets threads.
+   * Then the cores minus two, capped at four: the page, the camera and MediaPipe still need the
+   * rest, and starving them would slow the camera loop, which is exactly what strided mode did
+   * to the GPU. Past four, the model's layers are too small to split usefully.
+   */
+  function workerThreads() {
+    if (!window.crossOriginIsolated) return 1;
+    const cores = navigator.hardwareConcurrency || 2;
+    return Math.max(1, Math.min(config.encoder.max_worker_threads, cores - 2));
   }
 
   /**
@@ -777,8 +796,11 @@
      */
     const overLimit = inlineMs > limitMs;
     const wantsInline = settings.mode === "inline" || (settings.mode === "auto" && !overLimit);
-    const wantsStrided =
-      settings.mode === "strided" || (settings.mode === "auto" && provider === "webgpu");
+    // Strided is never chosen by itself any more, only forced (`?encoder=strided`). In the first
+    // 1.2.0 sessions it ran on integrated graphics, and sharing the GPU with the face mesh
+    // halved the camera loop for both trackers and delayed key presses by 150-200 ms. Too slow
+    // for inline, a WebGPU machine now uses the CPU worker like one without WebGPU.
+    const wantsStrided = settings.mode === "strided";
 
     const common = {
       camera_fps: cameraFps == null ? null : Math.round(cameraFps * 10) / 10,
@@ -810,11 +832,18 @@
     }
 
     status.textContent = "Your computer needs a little longer to get ready. This can take a minute…";
+    // The worker's ONNX Runtime comes from this origin (lib/ort/, scripts/sync-ort.sh), not the
+    // CDN: its threads are Workers started from ORT's own script URL, and a page may only start
+    // workers from its own origin. They exist only when the page is cross-origin isolated,
+    // which takes the COOP/COEP headers the Vassar server sends; elsewhere this is one thread.
+    const ortDir = new URL("lib/ort/", window.location.href).href;
+    const threads = workerThreads();
     const embedder = new DeferredEmbedder({
       workerUrl: "js/embed-worker.js",
       modelUrl: new URL(config.assets.modelUrl, window.location.href).href,
-      ortUrl: `https://cdn.jsdelivr.net/npm/onnxruntime-web@${Saccade.ORT_VERSION}/dist/ort.bundle.min.mjs`,
-      wasmDir: `https://cdn.jsdelivr.net/npm/onnxruntime-web@${Saccade.ORT_VERSION}/dist/`,
+      ortUrl: `${ortDir}ort.bundle.min.mjs`,
+      wasmDir: ortDir,
+      numThreads: threads,
     });
 
     try {
@@ -833,6 +862,8 @@
       return {
         ...common,
         encoder_mode: "deferred",
+        encoder_worker_threads: embedder.threads ? embedder.threads.count : 1,
+        encoder_worker_threads_requested: threads,
         encoder_worker_ms: Math.round(workerMs * 10) / 10,
         encoder_provider: "wasm-worker",
         encoder_budget_per_station: budget,

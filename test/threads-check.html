@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>threads check</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 46rem; }
+      table { border-collapse: collapse; margin-top: 1rem; }
+      td, th { padding: 0.25rem 0.9rem; text-align: right; border-bottom: 1px solid #ddd; }
+      th:first-child, td:first-child { text-align: left; }
+      .fail { color: #b00020; }
+    </style>
+  </head>
+  <body>
+    <h1>CPU encoder: threads</h1>
+    <p>
+      Times the deferred encoder's real worker, with ONNX Runtime from <code>lib/ort/</code>, at
+      1, 2 and 4 threads. Threads exist only on a cross-origin-isolated page: serve with
+      <code>python3 scripts/serve.py 8791 --isolate</code>. Without isolation every row runs one
+      thread, and says so.
+    </p>
+    <p id="env"></p>
+    <table>
+      <thead><tr><th>asked for</th><th>got</th><th>ms per encode (median of 15)</th><th>speed-up</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="status">Running…</p>
+
+    <script src="../js/deferred-embedder.js"></script>
+    <script type="module">
+      const cores = navigator.hardwareConcurrency || 2;
+      document.getElementById("env").textContent =
+        `crossOriginIsolated: ${window.crossOriginIsolated} · hardwareConcurrency: ${cores}`;
+      const ortDir = new URL("../lib/ort/", location.href).href;
+      const rows = document.getElementById("rows");
+      const results = [];
+      let base = null;
+      try {
+        for (const asked of [1, 2, 4].filter((n) => n <= cores)) {
+          const embedder = new DeferredEmbedder({
+            workerUrl: "../js/embed-worker.js",
+            modelUrl: new URL("../lib/saccade/eye_embedding.onnx", location.href).href,
+            ortUrl: `${ortDir}ort.bundle.min.mjs`,
+            wasmDir: ortDir,
+            numThreads: asked,
+          });
+          await embedder.init();
+          const ms = await embedder.measure(15);
+          const got = embedder.threads ? embedder.threads.count : "?";
+          if (base == null) base = ms;
+          results.push({ asked, got, ms: Math.round(ms * 10) / 10, isolated: embedder.threads?.isolated });
+          rows.insertAdjacentHTML("beforeend",
+            `<tr><td>${asked}</td><td>${got}</td><td>${ms.toFixed(1)}</td><td>${(base / ms).toFixed(2)}×</td></tr>`);
+          embedder.dispose();
+        }
+        document.getElementById("status").textContent = "Done.";
+      } catch (err) {
+        document.getElementById("status").innerHTML = `<span class="fail">Failed: ${err && err.message}</span>`;
+        results.push({ error: String(err && err.message) });
+        console.error(err);
+      }
+      window.__threadsCheck = { isolated: window.crossOriginIsolated, cores, results };
+      console.log("threads-check", JSON.stringify(window.__threadsCheck));
+    </script>
+  </body>
+</html>

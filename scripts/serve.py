@@ -10,7 +10,13 @@ everything, so a reload is always a reload.
 getUserMedia needs a secure context, and localhost counts as one, so this is enough to run the
 whole experiment.
 
-    python3 scripts/serve.py [port]
+    python3 scripts/serve.py [port] [--isolate]
+
+`--isolate` also sends the two headers the Vassar server sends, which make the page
+cross-origin isolated and so let the CPU encoder's worker run multi-threaded:
+
+    Cross-Origin-Opener-Policy: same-origin
+    Cross-Origin-Embedder-Policy: require-corp
 """
 
 import functools
@@ -21,7 +27,15 @@ import sys
 
 
 class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+    isolate = False
+    # .mjs and .wasm need their real types: a module script served as text/plain is refused.
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
+                      ".mjs": "text/javascript", ".wasm": "application/wasm"}
+
     def end_headers(self):
+        if self.isolate:
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cache-Control", "no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
@@ -34,13 +48,17 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8777
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    port = int(args[0]) if args else 8777
+    NoCacheHandler.isolate = "--isolate" in sys.argv
     root = pathlib.Path(__file__).resolve().parent.parent
     os.chdir(root)
     handler = functools.partial(NoCacheHandler, directory=str(root))
     with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as server:
         # flush=True so the banner appears even when stdout is redirected or piped.
         print(f"the cook-off is at http://localhost:{port}/index.html  (ctrl-c to stop)", flush=True)
+        if NoCacheHandler.isolate:
+            print("cross-origin isolated (COOP/COEP sent): the CPU encoder can use threads", flush=True)
         print("checks: /test/port-check.html  /test/pipeline-check.html", flush=True)
         print("        /test/trial-check.html  /test/deferred-check.html", flush=True)
         try:

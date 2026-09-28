@@ -69,6 +69,7 @@
       worker.onmessage = (event) => {
         const message = event.data;
         if (message.type === "ready") {
+          this.threads = { isolated: !!message.crossOriginIsolated, count: message.numThreads || 1 };
           this.identity = {
             dim: message.dim,
             emitsWeight: message.emitsWeight,
@@ -89,6 +90,7 @@
         ortUrl: this.opts.ortUrl,
         wasmDir: this.opts.wasmDir,
         modelUrl: this.opts.modelUrl,
+        numThreads: this.opts.numThreads || 1,
       });
     });
     return this.ready;

@@ -47,10 +47,10 @@ async function sha256Hex(bytes) {
 async function init(message) {
   ort = await import(message.ortUrl);
   ort.env.wasm.wasmPaths = message.wasmDir;
-  // Multi-threaded wasm needs SharedArrayBuffer, which needs the page to be cross-origin
-  // isolated (COOP/COEP). It is not, and making it so would break the CDN loads, so this is
-  // one core's worth of wasm and the budget below is set accordingly.
-  ort.env.wasm.numThreads = 1;
+  // Multi-threaded wasm needs SharedArrayBuffer, which a worker only has when the page that
+  // started it is cross-origin isolated (COOP/COEP headers). The page decides how many threads
+  // to ask for; without isolation it asks for one, and ORT is held to one regardless.
+  ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, message.numThreads || 1) : 1;
 
   const response = await fetch(message.modelUrl);
   if (!response.ok) throw new Error(`failed to fetch the model: ${response.status}`);
@@ -78,6 +78,9 @@ async function init(message) {
     emitsWeight: weightName != null,
     sha256: await sha256Hex(bytes),
     bytes: bytes.length,
+    // What the worker actually got, which is what the timing below was measured with.
+    crossOriginIsolated: !!self.crossOriginIsolated,
+    numThreads: ort.env.wasm.numThreads,
   };
 }
 
