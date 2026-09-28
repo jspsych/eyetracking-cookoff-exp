@@ -239,8 +239,10 @@
     "Eye tracking study",
     `<p>In this study, targets will appear on the screen and we will measure where you look.
      It takes about ${config.intro_minutes} minutes.</p>
-     <p>Your webcam stays on throughout. No video is recorded or sent — only numerical
-     measurements taken from each frame.</p>
+     <p>Your webcam stays on throughout. No video is recorded. We save numerical measurements
+     taken from each frame and, on some computers, small low-resolution images of the eye
+     region, which are used only to compute those measurements and are removed before any data
+     is shared.</p>
      <p>Before you begin, please find a comfortable position you can hold for a while. During
      the study you will only need the space bar, so you can leave the mouse alone.</p>`,
     "Begin",

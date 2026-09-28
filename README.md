@@ -227,7 +227,7 @@ results are written back into the finished trials by `station_id`.
 
 **Every frame is queued** (from version 1.3.1), the 600 ms arrival included, so saccade.js's
 saccade latency can be timed on these machines too. The worker is a pool of single-threaded
-workers, each encoding its own frames (up to four; an M3 manages about 22 frames a second with
+workers, each encoding its own frames (up to three, four before 1.4.0; an M3 manages about 22 frames a second with
 four, close to a 24 fps camera). A pool that keeps up embeds everything, catching up in the
 station gaps and breaks. One that falls behind works through the queue in order, and whatever it
 has not reached by the end is saved as raw crops. The analysis times saccade.js only on stations

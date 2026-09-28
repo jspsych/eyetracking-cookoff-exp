@@ -31,8 +31,10 @@ window.CookoffConfig = {
    * 1.3.3  Practice repeats until a round has every color change caught (at most
    *        `design.practice_max_rounds`, then a screen-out), and the instructions show the
    *        target with and without the orange dot. Practice rows carry `practice_round`.
+   * 1.4.0  The version the main data collection runs on. At most 3 CPU workers (was 4), and
+   *        the welcome screen says that small images of the eye region may be saved.
    */
-  version: "1.3.3",
+  version: "1.4.0",
 
   /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js
@@ -133,8 +135,10 @@ window.CookoffConfig = {
      *  5 KB eye crop in memory only, so 8000 is about 40 MB; past it, frames go unembedded. */
     backlog_max_frames: 8000,
     /** Most workers in the CPU encoder's pool: single-threaded, each encoding its own frames.
-     *  The pool gets the cores minus three, and one worker on a machine with 4 GB or under. */
-    max_workers: 4,
+     *  The pool gets the cores minus three, and one worker on a machine with 4 GB or under.
+     *  4 until 1.4.0: on two laptops (14 and 12 cores) four workers cost the recorder 15-25% of
+     *  the camera's frames and slowed key presses. */
+    max_workers: 3,
     /** Most eye crops written into the data for frames the pool never reached, thinned evenly
      *  across the session past it. The upload is gzipped, but eye images barely compress: a
      *  crop is 6.9 KB of base64 and 4.8 KB gzipped (681 pilot crops), and the rest of a session

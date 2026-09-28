@@ -274,7 +274,7 @@ not from GitHub Pages. The CPU encoder does not depend on it.
 
 From 1.3.0 the CPU encoder is a pool of single-threaded workers, each encoding its own frames:
 `encoder_workers` is how many started, and `encoder_workers_requested` how many the page asked
-for (the cores minus three, at most `max_workers`, one on 4 GB or less; the cores minus two, two on 4 GB, in 1.3.0–1.3.1). `encoder_worker_ms` is
+for (the cores minus three, at most `max_workers` (3; 4 before 1.4.0), one on 4 GB or less; the cores minus two, two on 4 GB, in 1.3.0–1.3.1). `encoder_worker_ms` is
 the effective time per frame across the whole pool (in 1.3.0 the per-station budget was built
 from it; from 1.3.1 it is only recorded); `encoder_worker_latency_ms` is one encode on one worker.
 
