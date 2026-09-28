@@ -25,8 +25,11 @@ window.CookoffConfig = {
    *        frame is queued, the settle included, so saccade.js's saccade latency can be
    *        measured on deferred sessions too. Frames the pool never reaches are saved as eye
    *        crops, up to `encoder.max_crops_saved`, thinned evenly past it.
+   * 1.3.2  Fewer CPU workers: the cores minus three (was two), and one on 4 GB or less (was
+   *        two). Two workers on 4-core machines halved the recorder's frame rate. The wait
+   *        at the end is 20 s (was 45 s).
    */
-  version: "1.3.1",
+  version: "1.3.2",
 
   /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js
@@ -127,7 +130,7 @@ window.CookoffConfig = {
      *  5 KB eye crop in memory only, so 8000 is about 40 MB; past it, frames go unembedded. */
     backlog_max_frames: 8000,
     /** Most workers in the CPU encoder's pool: single-threaded, each encoding its own frames.
-     *  The pool gets the cores minus two, and less on a machine with 4 GB or under. */
+     *  The pool gets the cores minus three, and one worker on a machine with 4 GB or under. */
     max_workers: 4,
     /** Most eye crops written into the data for frames the pool never reached, thinned evenly
      *  across the session past it. The upload is gzipped, but eye images barely compress: a
@@ -137,8 +140,10 @@ window.CookoffConfig = {
     max_crops_saved: 5000,
     /** How long the participant may be held on the "finishing up" screen at the end while the
      *  encoder catches up, in ms. Between blocks there is no wait beyond the fixed break
-     *  (`design.break_ms`), which the encoder uses anyway. */
-    drain_ms_at_end: 45000,
+     *  (`design.break_ms`), which the encoder uses anyway. 45 s in 1.3.1, where five of seven
+     *  deferred sessions waited all of it; what is left becomes crops, so a shorter wait costs
+     *  upload size, not data. */
+    drain_ms_at_end: 20000,
   },
 
   design: {

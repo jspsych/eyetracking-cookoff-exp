@@ -703,16 +703,18 @@
   /**
    * How many workers the CPU encoder runs, each single-threaded, each encoding its own frames.
    *
-   * The cores minus two, so the page, the camera and MediaPipe keep theirs: starving them slows
-   * the camera loop, which is exactly what strided mode did to the GPU. Capped by memory too,
-   * since every worker holds the model and ONNX Runtime: one on a 2 GB machine, two on 4 GB.
+   * The cores minus three, so the page, the camera and MediaPipe keep theirs: starving them
+   * slows the camera loop, which is exactly what strided mode did to the GPU. In 1.3.1 it was
+   * the cores minus two, and both 4-core, 4 GB machines ran two workers and recorded at half
+   * the camera's rate, where one budgeted worker in 1.1.0 had kept up on six of them. Capped by
+   * memory too, since every worker holds the model and ONNX Runtime: one on 4 GB or less.
    * `navigator.deviceMemory` is Chrome's (rounded, at most 8); elsewhere cores alone decide.
    */
   function workerCount() {
     const cores = navigator.hardwareConcurrency || 2;
     const memory = navigator.deviceMemory;
-    const byMemory = memory == null ? Infinity : memory <= 2 ? 1 : memory <= 4 ? 2 : Infinity;
-    return Math.max(1, Math.min(config.encoder.max_workers, cores - 2, byMemory));
+    const byMemory = memory == null ? Infinity : memory <= 4 ? 1 : Infinity;
+    return Math.max(1, Math.min(config.encoder.max_workers, cores - 3, byMemory));
   }
 
 
