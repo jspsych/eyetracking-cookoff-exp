@@ -704,9 +704,10 @@
    * How many threads to give the CPU encoder's worker.
    *
    * One unless the page is cross-origin isolated, which is the only way a worker gets threads.
-   * Then the cores minus two, capped at four: the page, the camera and MediaPipe still need the
-   * rest, and starving them would slow the camera loop, which is exactly what strided mode did
-   * to the GPU. Past four, the model's layers are too small to split usefully.
+   * Then the cores minus two, capped at `max_worker_threads` (two): the page, the camera and
+   * MediaPipe still need the rest, and starving them would slow the camera loop, which is
+   * exactly what strided mode did to the GPU. Past two, the model is too small to split
+   * usefully: four threads encoded slower than two.
    */
   function workerThreads() {
     if (!window.crossOriginIsolated) return 1;
