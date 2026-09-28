@@ -78,11 +78,11 @@ On a machine with WebGPU the encoder runs inside the frame loop, every frame get
 and `embedded_frames` is `null`, meaning "all of them".
 
 Without WebGPU the encoder costs one to several hundred milliseconds on single-threaded wasm —
-longer than a camera frame. It moves to a Web Worker so it cannot stall the recording, and it
-gets a per-station budget, because backgrounding does not make it fast: at 200 ms an encode, a
-station's thirty frames need six seconds and a station lasts about two. So an evenly spaced
-subset is encoded and the rest of the frames have no embedding. WebGazer's features are cut for
-every frame either way, since they cost almost nothing.
+longer than a camera frame. It moves to a pool of Web Workers so it cannot stall the recording.
+From version 1.3.1 every frame is queued, the arrival during the settle included, and a pool that
+cannot keep up leaves the rest as raw crops. Before 1.3.1 the worker had a per-station budget:
+an evenly spaced subset of the fixation frames was encoded and the rest had no embedding.
+WebGazer's features are cut for every frame either way, since they cost almost nothing.
 
 That leaves two streams of different lengths, and three fields to line them up:
 
@@ -90,7 +90,10 @@ That leaves two streams of different lengths, and three fields to line them up:
   `saccade_weight`. `null` means every frame.
 - **`crop_frames`** and **`saccade_crop`** — frames the worker did not reach before the drain
   deadline. Their raw 144x36 crops are in the data instead, twenty times the bytes and exactly
-  the same information; run them through the model offline. Usually `null`.
+  the same information; run them through the model offline. `null` when the pool kept up. At
+  most `encoder.max_crops_saved` (3000) crops are kept per session, so the upload stays under
+  DataPipe's 32 MB limit; past it they are thinned evenly across the session, and the frames
+  dropped are counted in `frames_dropped_unencoded`.
 - **`station_id`** — the station's serial number, which is how the worker's results found this
   row after the trial had already finished.
 
@@ -106,8 +109,9 @@ if embedded is None:
 matched_webgazer_features = features[embedded]   # same frames as the embeddings
 ```
 
-The budget is recorded per session as `encoder_budget_per_station`, so a session collected at
-eight frames a station is distinguishable from one collected at thirty.
+Before 1.3.1 the budget is recorded per session as `encoder_budget_per_station`, so a session
+collected at eight frames a station is distinguishable from one collected at thirty. From 1.3.1
+it is always `null`.
 
 ## Rebuilding WebGazer's features
 
@@ -239,8 +243,8 @@ From the timing measurement: `timing_lag_ms`, `timing_verdict` (`OK` / `INCONCLU
 is expected), `timing_camera_period_ms`.
 
 About the encoder: `encoder_mode` (`inline`, `strided`, `deferred`, or `inline-fallback` when
-the worker would not start), `encoder_inline_ms` and `encoder_worker_ms` (measured on this machine, which
-is what the budget was computed from), `encoder_provider`, `encoder_budget_per_station`,
+the worker would not start), `encoder_inline_ms` and `encoder_worker_ms` (measured on this machine; before 1.3.1
+the budget was computed from it), `encoder_provider`, `encoder_budget_per_station` (null from 1.3.1),
 `frames_embedded`, `frames_left_as_crops`, and `embed_queue_timed_out`.
 
 `strided` (from version 1.2.0) is WebGPU that cannot encode every frame: the encoder stays on the
@@ -267,8 +271,8 @@ not from GitHub Pages. The CPU encoder does not depend on it.
 From 1.3.0 the CPU encoder is a pool of single-threaded workers, each encoding its own frames:
 `encoder_workers` is how many started, and `encoder_workers_requested` how many the page asked
 for (the cores minus two, at most `max_workers`, fewer on 4 GB or less). `encoder_worker_ms` is
-the effective time per frame across the whole pool, which is what the per-station budget was
-built from; `encoder_worker_latency_ms` is one encode on one worker.
+the effective time per frame across the whole pool (in 1.3.0 the per-station budget was built
+from it; from 1.3.1 it is only recorded); `encoder_worker_latency_ms` is one encode on one worker.
 
 `encoder_forced` is the path a pilot forced from the URL (`?encoder=strided`, `inline` or
 `deferred`), and null when the machine chose its own. Never set for a Prolific participant.

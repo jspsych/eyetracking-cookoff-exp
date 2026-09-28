@@ -21,8 +21,12 @@ window.CookoffConfig = {
    *        the GPU and embeds whichever frames it has time for, instead of moving to the CPU
    *        worker, and encodes the rest in the downtime (block breaks, the end questions, the
    *        "finishing up" screen). The worker is now only for machines without WebGPU.
+   * 1.3.1  The CPU worker pool has no per-station budget and no fixation-only rule: every
+   *        frame is queued, the settle included, so saccade.js's saccade latency can be
+   *        measured on deferred sessions too. Frames the pool never reaches are saved as eye
+   *        crops, up to `encoder.max_crops_saved`, thinned evenly past it.
    */
-  version: "1.3.0",
+  version: "1.3.1",
 
   /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js
@@ -90,13 +94,12 @@ window.CookoffConfig = {
    *
    * On WebGPU an encode costs about 20 ms and runs inside the frame loop. On single-threaded
    * wasm it costs one to several hundred milliseconds — longer than a camera frame — so it
-   * moves to a worker and stops blocking the recording. Backgrounding alone is not enough
-   * though: at 200 ms an encode, a station's thirty frames need six seconds and a station
-   * lasts about two. So the worker also gets a budget, and encodes an evenly spaced subset.
+   * moves to a pool of workers and stops blocking the recording. Every frame is queued; a pool
+   * too slow to keep up leaves the rest as raw eye crops, which the offline replay encodes.
    *
-   * WebGazer's features are still cut for every frame, so the two trackers' streams have
-   * different lengths on these machines. `embedded_frames` records which frames have both, and
-   * a head-to-head comparison has to run on those.
+   * WebGazer's features are still cut for every frame, so on a slow machine the two trackers'
+   * streams have different lengths. `embedded_frames` records which frames have an embedding,
+   * `crop_frames` which have a crop instead.
    */
   encoder: {
     /** Force a path, for testing: "auto", "inline", "strided" or "deferred". "auto" never picks
@@ -126,13 +129,10 @@ window.CookoffConfig = {
     /** Most workers in the CPU encoder's pool: single-threaded, each encoding its own frames.
      *  The pool gets the cores minus two, and less on a machine with 4 GB or under. */
     max_workers: 4,
-    /** Fraction of a station's wall-clock time the worker is assumed to get. Below 1 because
-     *  the machine is also running the camera, MediaPipe and the page. */
-    worker_share: 0.85,
-    /** Never queue fewer than this per station, however slow the machine is: below about four
-     *  frames a station there is not enough left to average an embedding over. Frames the
-     *  worker cannot reach are written out as raw crops and encoded offline. */
-    min_frames_per_station: 4,
+    /** Most eye crops written into the data for frames the pool never reached, thinned evenly
+     *  across the session past it. Each is about 7 KB of base64, so 3000 is about 21 MB before
+     *  gzip: with the rest of a session, safely under DataPipe's 32 MB request limit. */
+    max_crops_saved: 3000,
     /** How long the participant may be held on the "finishing up" screen at the end while the
      *  encoder catches up, in ms. Between blocks there is no wait beyond the fixed break
      *  (`design.break_ms`), which the encoder uses anyway. */

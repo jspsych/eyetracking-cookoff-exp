@@ -189,7 +189,8 @@
        *  worker, this is how its results find their way back into this row after the fact. */
       station_id: { type: ParameterType.INT },
       /** Indices into `frame_t` of the frames that have an embedding, or null meaning all of
-       *  them. Only a subset when the encoder was deferred and budgeted. Line the two trackers
+       *  them. A subset when the encoder was deferred and fell behind (the rest are in
+       *  `crop_frames`), or budgeted (before 1.3.1). Line the two trackers
        *  up on these frames: WebGazer's features are present for every frame, saccade.js's
        *  embedding is not. */
       embedded_frames: { type: ParameterType.INT, array: true },
@@ -367,32 +368,15 @@
        */
       const openRecorder = () => {
         captureOnset = performance.now();
-        // The expected frame count sets the sampling stride when the encoder is deferred, so
-        // the frames that do get encoded are spread over the fixation window rather than
-        // bunched at its start. Only the fixation window counts: with `record_settle` the
-        // recorder holds the worker back until the settle ends (see `embedFrom` below). A
-        // rough estimate is enough: the stride is a rate, not a quota.
-        recorder.beginCapture({
-          stationId,
-          onset: captureOnset,
-          embedFrom: trial.record_settle ? null : 0,
-          expectedFrames: Math.max(
-            1,
-            Math.round(((recorder.fps || 30) * trial.capture_duration) / 1000),
-          ),
-        });
+        recorder.beginCapture({ stationId });
       };
 
       if (trial.record_settle) openRecorder();
 
       later(() => {
         if (!trial.record_settle) openRecorder();
-        else {
-          settleEndedAt = performance.now() - captureOnset;
-          // The boundary `fixation_from` is computed from, handed to the recorder now so the
-          // deferred encoder spends its budget on exactly the frames the analysis keeps.
-          recorder.embedFrom(settleEndedAt);
-        }
+        // The boundary `fixation_from` is computed from.
+        else settleEndedAt = performance.now() - captureOnset;
         target.classList.add("ck-target-capturing");
 
         this.jsPsych.pluginAPI.getKeyboardResponse({

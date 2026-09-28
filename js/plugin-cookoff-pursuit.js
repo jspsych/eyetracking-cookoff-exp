@@ -349,10 +349,7 @@
         // ~17 ms late and every gaze frame before it interpolates to nothing.
         const origin = positionAt(0);
         path.push([0, origin.x, origin.y]);
-        recorder.beginCapture({
-          stationId,
-          expectedFrames: Math.max(1, Math.round(((recorder.fps || 30) * totalMs) / 1000)),
-        });
+        recorder.beginCapture({ stationId });
 
         this.jsPsych.pluginAPI.getKeyboardResponse({
           callback_function: onResponse,

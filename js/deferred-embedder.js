@@ -1,30 +1,27 @@
 /**
- * Backgrounded eye embedding: a queue on this side, a worker on the other.
+ * Backgrounded eye embedding: a queue on this side, a pool of workers on the other.
  *
  * Why this exists, in numbers. The encoder costs about 20 ms on WebGPU and runs inside the
  * frame loop. Without WebGPU it runs on single-threaded wasm at one to several hundred
  * milliseconds — longer than the 33 ms between camera frames, so it cannot run inline at all
- * without costing frames. Moving it to a worker fixes the stall but does not, by itself, fix
- * the arithmetic: at 200 ms a station's thirty frames need six seconds of encoding and a
- * station only lasts about two.
+ * without costing frames. In a worker it no longer stalls the recording, and a pool of them
+ * encodes several frames at once.
  *
- * So backgrounding comes with a budget. The warm-up measures what an encode actually costs on
- * this machine, and the recorder queues only as many frames per station as the worker can
- * plausibly finish — evenly spaced across the capture window, so what is kept is a thinner
- * sample of the same window rather than its first few frames.
+ * Every frame is queued, the arrival saccade in the settle included (from version 1.3.1; before
+ * that the worker got a per-station budget of fixation frames). A fast machine keeps up, and
+ * the station gaps, the breaks and the "finishing up" screen let it catch up. A slow one falls
+ * behind, and what it never reaches is written into the data as raw eye crops for the offline
+ * replay to encode.
  *
  * Three things keep that honest:
  *
- *   - WebGazer's features are cut for *every* frame regardless, because they cost almost
- *     nothing. The budget thins one tracker's stream and not the other's, so a head-to-head
- *     comparison has to be run on the frames both have. `embedded_frames` on each station says
- *     which those are; `analysis/replay.py` intersects on it.
- *   - Nothing is silently dropped. A frame that was queued but never encoded — because the
- *     machine was slower than the budget assumed — has its raw crop written to the data
- *     instead, and the offline replay encodes it there. Twenty times the bytes, identical
- *     information.
- *   - The budget is recorded, so a session collected at eight frames a station is
- *     distinguishable from one collected at thirty.
+ *   - WebGazer's features are cut for *every* frame regardless. `embedded_frames` on each
+ *     station says which frames also have an embedding; `crop_frames` which have a crop.
+ *   - Nothing is silently dropped, up to a cap. The upload has to stay under DataPipe's 32 MB
+ *     limit, so past `maxCrops` the leftover crops are thinned evenly across the session, and
+ *     the frames dropped are counted.
+ *   - The encode time is measured and recorded, so a session that ran on one slow worker is
+ *     distinguishable from one that ran on four fast ones.
  */
 (function (global) {
   "use strict";
@@ -60,11 +57,10 @@
     /** stationId -> { indices: number[], crops: Map, results: Map } */
     this.stations = new Map();
 
-    this.encodeMs = null; // effective ms per frame across the whole pool: what the budget uses
+    this.encodeMs = null; // effective ms per frame across the whole pool
     this.latencyMs = null; // ms for one encode on one worker
     this.encoded = 0;
     this.failed = 0;
-    this.budget = Infinity;
     this.onProgress = null;
   }
 
@@ -121,8 +117,8 @@
   };
 
   /**
-   * Time a few real encodes, so the budget is built from this machine rather than from an
-   * assumption about it. The worker has already run one inference during `init`, so wasm
+   * Time a few real encodes, for the record: nothing is decided by them, but they say how fast
+   * this machine's pool was. The worker has already run one inference during `init`, so wasm
    * compilation is not in these numbers.
    */
   DeferredEmbedder.prototype.measure = async function (samples) {
@@ -131,8 +127,8 @@
     for (let i = 0; i < CROP_LEN; i++) crop[i] = (i * 37) % 256;
     const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
-    // Throughput, which is what the budget needs: rounds of one encode on every worker at once.
-    // With one worker this is simply the latency of one encode.
+    // Throughput: rounds of one encode on every worker at once. With one worker this is simply
+    // the latency of one encode.
     const rounds = [];
     for (let i = 0; i < n; i++) {
       const started = performance.now();
@@ -156,26 +152,6 @@
       this.pendingById.set(id, { resolve, reject });
       slot.worker.postMessage({ type: "embed", id, crop: crop.buffer }, [crop.buffer]);
     });
-  };
-
-  /**
-   * How many frames per station the worker can be expected to finish.
-   *
-   * `perStationMs` is the whole station cycle, not just the gap between capture windows: the
-   * worker is on another thread, so it keeps going while the participant is looking at the
-   * target. `share` leaves headroom for a machine whose cores are already busy.
-   */
-  DeferredEmbedder.prototype.setBudget = function (perStationMs, share, min, max) {
-    if (!this.encodeMs) return (this.budget = max);
-    const affordable = Math.floor((perStationMs * share) / this.encodeMs);
-    this.budget = Math.max(min, Math.min(max, affordable));
-    return this.budget;
-  };
-
-  /** Keep every `stride`-th frame, so the kept frames span the whole capture window. */
-  DeferredEmbedder.prototype.strideFor = function (expectedFrames) {
-    if (!Number.isFinite(this.budget) || this.budget >= expectedFrames) return 1;
-    return Math.max(1, Math.ceil(expectedFrames / this.budget));
   };
 
   /** Queue one frame's crop. The crop is copied: the recorder reuses its buffer. */
@@ -285,11 +261,30 @@
    * hands back the stored trial objects themselves, so a station that finished minutes ago can
    * still be completed. Frames the worker never reached keep their crops, which go into the
    * row instead and are encoded by the offline replay.
+   *
+   * `maxCrops` caps how many crops go into the data, so a very slow machine's session still
+   * fits in one upload. Past it, the crops kept are spread evenly over every frame the worker
+   * never reached, so each part of the session keeps some; the rest are counted as dropped.
    */
-  DeferredEmbedder.prototype.finalize = function (jsPsych, saveCrops) {
+  DeferredEmbedder.prototype.finalize = function (jsPsych, saveCrops, maxCrops) {
     const E = global.CookoffEncoding;
     const keepCrops = saveCrops !== false;
     const summary = { stations: 0, embedded: 0, asCrops: 0, cropsDropped: 0 };
+
+    let leftover = 0;
+    for (const station of this.stations.values()) {
+      for (const frameIndex of station.indices) {
+        if (!station.results.has(frameIndex) && station.crops.has(frameIndex)) leftover++;
+      }
+    }
+    const cap = Number.isFinite(maxCrops) ? Math.max(0, maxCrops) : Infinity;
+    let seen = 0;
+    // True for exactly `cap` of the `leftover` crops, evenly spaced in queue order.
+    const keepNext = () => {
+      const k = seen++;
+      if (leftover <= cap) return true;
+      return Math.floor(((k + 1) * cap) / leftover) > Math.floor((k * cap) / leftover);
+    };
 
     for (const [stationId, station] of this.stations) {
       const rows = jsPsych.data.get().filter({ station_id: stationId }).values();
@@ -310,9 +305,12 @@
           weights.push([result.weight == null ? NaN : result.weight]);
         } else if (keepCrops) {
           const crop = station.crops.get(frameIndex);
-          if (crop) {
+          if (!crop) continue;
+          if (keepNext()) {
             cropFrames.push(frameIndex);
             crops.push(crop);
+          } else {
+            summary.cropsDropped++;
           }
         } else {
           // A 144x36 strip across both eyes is a recognizable picture of someone's eyes, and

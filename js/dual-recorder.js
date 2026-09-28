@@ -24,7 +24,7 @@
  *   - Without WebGPU it costs one to several hundred milliseconds on single-threaded wasm,
  *     which is longer than a camera frame. Running it here would not just be slow, it would
  *     cost frames. So it moves to a worker and this loop stops waiting for it entirely; see
- *     `deferred-embedder.js` for the queue, the per-station budget and the write-back.
+ *     `deferred-embedder.js` for the queue, the crop cap and the write-back.
  */
 (function (global) {
   "use strict";
@@ -239,14 +239,11 @@
   /**
    * Open a capture window. Frames land in the buffer until `endCapture()`.
    *
-   * `stationId` and `expectedFrames` matter only when the encoder has been deferred to a
-   * worker: the first says which station a queued crop belongs to, and the second sets the
-   * stride, so the frames that do get encoded are spread across the whole window instead of
-   * being its first few.
+   * `stationId` matters only when the encoder has been deferred to a worker: it says which
+   * station a queued crop belongs to.
    */
   DualRecorder.prototype.beginCapture = function (options) {
     const opts = options || {};
-    const expected = opts.expectedFrames || Math.max(1, Math.round((this.fps || 30) * 1));
     this.buffer = {
       t0: performance.now(),
       t: [],
@@ -264,32 +261,11 @@
       nDropped: 0,
       nSkipped: 0,
       stationId: opts.stationId != null ? opts.stationId : null,
-      stride: this.embedder ? this.embedder.strideFor(expected) : 1,
       queued: [],
-      // Deferred only: frames captured before this offset (ms from `onset`, the capture clock
-      // the trial's frame_t is measured on) are never sent to the worker. `embedFrom: null`
-      // holds everything back until `embedFrom()` names the offset.
-      onset: opts.onset != null ? opts.onset : performance.now(),
-      embedFrom: opts.embedFrom === undefined ? 0 : opts.embedFrom,
-      eligible: 0,
       // Strided only: {frame, embedding, weight} as each encode comes back, in any order.
       strided: [],
     };
     return this.buffer;
-  };
-
-  /**
-   * Start sending frames to the worker from `offsetMs` after the capture onset.
-   *
-   * On a machine without WebGPU only a few frames a station can be encoded, and the ones
-   * captured while the eye is still travelling to the target are thrown away by the accuracy
-   * analysis — and at one frame every ~250 ms they are far too sparse to time a 40 ms saccade.
-   * So the budget is spent on steady fixation only. The capture trial calls this at the same
-   * moment it fixes `fixation_from`, so the two use one boundary. A no-op on the inline path,
-   * which embeds every frame.
-   */
-  DualRecorder.prototype.embedFrom = function (offsetMs) {
-    if (this.buffer) this.buffer.embedFrom = offsetMs;
   };
 
   DualRecorder.prototype.endCapture = function () {
@@ -614,18 +590,11 @@
     buffer.t.push(stage.time.capture);
 
     if (this.embedder) {
-      // Every `stride`-th frame of the fixation window goes to the worker, counted from the
-      // first one, so the budget is spread evenly over steady fixation. The rest keep their
-      // WebGazer features and their timestamp and simply have no embedding — `embedded_frames`
-      // records which is which, so an analysis can line the two trackers up on the frames
-      // both have.
-      const inFixation =
-        buffer.embedFrom === 0 ||
-        (buffer.embedFrom !== null && stage.time.capture - buffer.onset >= buffer.embedFrom);
-      if (inFixation && buffer.eligible++ % buffer.stride === 0) {
-        buffer.queued.push(frameIndex);
-        this.embedder.submit(buffer.stationId, frameIndex, stage.crop);
-      }
+      // Every frame goes to the worker, the settle included: saccade.js's latency is measured
+      // on the frames where the eye arrives. Whatever the worker never reaches comes back as a
+      // raw crop instead (`crop_frames`), so `embedded_frames` is filled in only at the end.
+      buffer.queued.push(frameIndex);
+      this.embedder.submit(buffer.stationId, frameIndex, stage.crop);
     } else if (!this.strided) {
       buffer.embedding.push(embedding);
       buffer.weight.push([weight == null ? NaN : weight]);

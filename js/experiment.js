@@ -739,9 +739,9 @@
   }
 
   /**
-   * Decide where the eye encoder runs, and how much of it there is room for.
+   * Decide where the eye encoder runs.
    *
-   * Returns the numbers to record, so a session's frame budget is visible in the data rather
+   * Returns the numbers to record, so how a session was encoded is visible in the data rather
    * than inferred from the user agent afterwards.
    */
   async function chooseEncoder(recorder, status) {
@@ -794,7 +794,8 @@
      *             This is most participants: in the first pilot, integrated graphics took
      *             30-330 ms a frame, and moving that to the CPU worker made it 2-9x slower.
      *   deferred  no WebGPU: the encode runs on the CPU, in a worker so it cannot stall the
-     *             page, on a per-station budget.
+     *             page. Every frame is queued, and whatever the pool never reaches is saved
+     *             as a raw eye crop.
      */
     const overLimit = inlineMs > limitMs;
     const wantsInline = settings.mode === "inline" || (settings.mode === "auto" && !overLimit);
@@ -850,15 +851,8 @@
 
     try {
       await embedder.init();
+      // For the record only: every frame is queued however fast this is.
       const workerMs = await embedder.measure(3);
-      const stationMs =
-        config.design.settle_duration + config.design.capture_duration + config.design.station_gap;
-      const budget = embedder.setBudget(
-        stationMs,
-        settings.worker_share,
-        settings.min_frames_per_station,
-        Number.MAX_SAFE_INTEGER,
-      );
       recorder.embedder = embedder;
       Cookoff.embedder = embedder;
       return {
@@ -869,7 +863,8 @@
         encoder_worker_latency_ms: Math.round(embedder.latencyMs * 10) / 10,
         encoder_worker_ms: Math.round(workerMs * 10) / 10,
         encoder_provider: "wasm-worker",
-        encoder_budget_per_station: budget,
+        // No budget since 1.3.1: every frame is queued, and the unreached ones become crops.
+        encoder_budget_per_station: null,
       };
     } catch (error) {
       // A worker that will not start is not a reason to lose the participant: fall back to
@@ -1348,7 +1343,11 @@
           config.encoder.drain_ms_at_end,
           waitProgress(config.encoder.drain_ms_at_end),
         );
-        embedSummary = Cookoff.embedder.finalize(jsPsych, config.privacy.save_eye_crops);
+        embedSummary = Cookoff.embedder.finalize(
+          jsPsych,
+          config.privacy.save_eye_crops,
+          config.encoder.max_crops_saved,
+        );
         embedSummary.timedOut = left.timedOut;
         Cookoff.embedder.dispose();
       }

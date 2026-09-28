@@ -231,22 +231,17 @@ So on those machines the encoder moves to a worker (`js/embed-worker.js`) and th
 stops waiting for it entirely. Crops are queued, the worker answers when it can, and the
 results are written back into the finished trials by `station_id`.
 
-**Backgrounding alone is not enough**, and it is worth being clear about why. At 200 ms an
-encode, a station's thirty frames need six seconds and a station lasts about two. A worker on
-another core does not close a gap that size. So it also gets a budget: the warm-up measures
-what an encode actually costs on this machine, works out how many frames per station the worker
-can finish, and queues an evenly spaced subset of that size. A typical wasm machine lands
-somewhere between four and a dozen frames a station instead of thirty.
+**Every frame is queued** (from version 1.3.1), the 600 ms arrival included, so saccade.js's
+saccade latency can be timed on these machines too. The worker is a pool of single-threaded
+workers, each encoding its own frames (up to four; an M3 manages about 22 frames a second with
+four, close to a 24 fps camera). A pool that keeps up embeds everything, catching up in the
+station gaps and breaks. One that falls behind works through the queue in order, and whatever it
+has not reached by the end is saved as raw crops. The analysis times saccade.js only on stations
+whose whole arrival was encoded.
 
-The subset is drawn from steady fixation only, never from the 600 ms while the eye is still
-arriving at the target. The accuracy analysis discards those arrival frames anyway, and at one
-encoded frame every ~250 ms they are far too sparse to time a 40 ms saccade: spread over the
-whole station, a budget of seven left only three or four usable frames, and saccade.js's latency
-on one pilot came out 95 ms late. So on these machines saccade.js contributes no saccade latency.
-WebGazer's features are still cut from every frame, arrival included, so latency is still
-measured in every session. The capture trial tells the recorder where fixation starts at the
-same moment it fixes `fixation_from`, so the encoder and the analysis use one boundary. Machines
-that encode inline are unaffected: every frame is embedded.
+Before 1.3.1 the worker had a per-station budget instead: the warm-up measured an encode and
+queued an evenly spaced subset of the fixation frames, four to a dozen a station on a typical
+wasm machine, and saccade.js contributed no latency on those sessions.
 
 Three things keep that from quietly becoming a bias:
 
@@ -256,11 +251,13 @@ Three things keep that from quietly becoming a bias:
   tracker on eight frames and the other on thirty would compare sample sizes, not trackers.
 - Nothing is silently dropped. Frames still queued when the drain deadline expires have their
   **raw crops** written into the data instead — twenty times the bytes, identical information.
+  Up to 3000 crops a session (`encoder.max_crops_saved`, to stay under DataPipe's 32 MB upload
+  limit); past that they are thinned evenly and the dropped frames counted.
   `python analysis/replay.py session.json --encode-crops lib/saccade/eye_embedding.onnx` folds
   them back in.
-- The measurement and the budget are recorded (`encoder_mode`, `encoder_worker_ms`,
-  `encoder_budget_per_station`), so a thinned session is visible in the data rather than
-  inferred from the user agent afterwards.
+- The measurement and the outcome are recorded (`encoder_mode`, `encoder_workers`,
+  `encoder_worker_ms`, `frames_embedded`, `frames_left_as_crops`), so a slow session is visible
+  in the data rather than inferred from the user agent afterwards.
 
 The queue drains in the background during the task, in the fixed 10-second break between blocks
 (the same length for everyone, so the task's timing never depends on the machine), and behind a
@@ -534,7 +531,7 @@ Three pages, no build step. Serve the repo and open them.
 | `test/pipeline-check.html` | loads the real ONNX encoder and runs a synthetic frame through both feature cuts and the packing, with no camera; reports the per-frame cost on this machine |
 | `test/trial-check.html` | drives the capture trial on a virtual clock: probe timing, response scoring, and the capture window stretching to cover a late color change |
 | `test/pursuit-check.html` | the moving-target trial on a virtual clock (`requestAnimationFrame` included): the velocity profile, the turnarounds, and that the logged path and the gaze frames share a clock |
-| `test/deferred-check.html` | the no-WebGPU path with no camera: the real worker and wasm session, the budget arithmetic, the deliberately-missed deadline, and the write-back into a jsPsych dataset |
+| `test/deferred-check.html` | the no-WebGPU path with no camera: the real worker and wasm session, queueing every frame, the crop cap, the deliberately-missed deadline, and the write-back into a jsPsych dataset |
 
 `port-check` is the one that matters most, and it has already earned its keep: it caught that
 passing `willReadFrequently` to the destination canvas changes Chrome's downsampling filter
@@ -554,7 +551,7 @@ index.html                      the experiment
 js/config.js                    grids, durations, probe rate, where the data goes
 js/capability.js                WebGPU probe, hardware facts, the ridge microbenchmark
 js/dual-recorder.js             the shared per-frame loop: one face mesh, two feature cuts
-js/deferred-embedder.js         the queue, budget and write-back for the worker path
+js/deferred-embedder.js         the worker pool's queue, crop cap and write-back
 js/embed-worker.js              the ONNX encoder on its own thread
 js/webgazer-features.js         WebGazer's eye boxes, patches and equalization, ported
 js/plugin-cookoff-capture.js    one station: land, settle, capture, color change, score

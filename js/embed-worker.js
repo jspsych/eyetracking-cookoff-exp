@@ -69,7 +69,7 @@ async function init(message) {
   inputTensor = new ort.Tensor("float32", inputData, [1, EYE_H, EYE_W, 1]);
 
   // One real inference before anything is timed: the first run pays for wasm compilation and
-  // would otherwise be mistaken for the steady-state cost the budget is built from.
+  // would otherwise be mistaken for the steady-state cost of an encode.
   const warm = await run(new Uint8Array(CROP_LEN));
 
   return {

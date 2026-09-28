@@ -25,7 +25,7 @@
     <h1>Deferred encoder check</h1>
     <p>
       The no-WebGPU path, with no camera: the real worker, the real wasm session, the real
-      budget arithmetic and the real write-back into a jsPsych dataset. Slow on purpose — it is
+      queueing, the crop cap and the real write-back into a jsPsych dataset. Slow on purpose — it is
       measuring a wasm encode.
     </p>
     <pre id="out">running…</pre>
@@ -75,26 +75,15 @@
       const ms = await embedder.measure(3);
       log(`one encode costs ${ms.toFixed(0)} ms on this machine (wasm, one thread)`);
 
-      // The arithmetic the warm-up does.
       const d = CookoffConfig.design;
-      const stationMs = d.settle_duration + d.capture_duration + d.station_gap;
-      const budget = embedder.setBudget(stationMs, CookoffConfig.encoder.worker_share,
-        CookoffConfig.encoder.min_frames_per_station, Number.MAX_SAFE_INTEGER);
-      const expectedFrames = Math.round((30 * d.capture_duration) / 1000);
-      const stride = embedder.strideFor(expectedFrames);
-      log(`a station lasts ${stationMs} ms and yields about ${expectedFrames} frames`);
-      log(`budget: ${budget} frames per station, so every ${stride}${stride === 1 ? "st" : stride === 2 ? "nd" : stride === 3 ? "rd" : "th"} frame is queued`);
-      check("the budget is at least the configured floor",
-        budget >= CookoffConfig.encoder.min_frames_per_station, `${budget}`);
-      check("the stride spreads the kept frames over the window",
-        stride >= 1 && stride * budget >= expectedFrames - stride, `stride ${stride}, budget ${budget}`);
+      const expectedFrames = Math.round((30 * (d.settle_duration + d.capture_duration)) / 1000);
 
       /*
        * The recorder's side of the glue, driven without a camera.
        *
        * `record` and `pack` are the shipped prototype methods called on a bare object, so this
-       * checks the real stride arithmetic and the real packing rather than a description of
-       * them. Only the fields those two touch are present.
+       * checks the real queueing and the real packing rather than a description of them. Only
+       * the fields those two touch are present.
        */
       const fakeRecorder = {
         embedder,
@@ -105,9 +94,9 @@
         lastFrame: null,
         onFrame: null,
         beginCapture: DualRecorder.prototype.beginCapture,
-        embedFrom: DualRecorder.prototype.embedFrom,
         record: DualRecorder.prototype.record,
         pack: DualRecorder.prototype.pack,
+        packCommon: DualRecorder.prototype.packCommon,
       };
       const fakeStage = (i) => ({
         time: { capture: 1000 + i * 33.3, source: "captureTime", dropped: 0 },
@@ -122,19 +111,17 @@
         ear: new Float32Array(2),
       });
 
+      // Every frame is queued, the arrival (settle) included: saccade latency needs it.
       const N_FRAMES = 30;
-      fakeRecorder.beginCapture({ stationId: 99, expectedFrames: N_FRAMES });
+      fakeRecorder.beginCapture({ stationId: 99 });
       for (let i = 0; i < N_FRAMES; i++) fakeRecorder.record(fakeStage(i), null, null);
       const packed = fakeRecorder.pack(fakeRecorder.buffer, 1000);
 
       check("the recorder keeps every frame for WebGazer", packed.n_frames === N_FRAMES,
         `${packed.n_frames} frames`);
-      check("the recorder queues only the budgeted frames",
-        packed.embedded_frames.length === Math.ceil(N_FRAMES / stride),
-        `${packed.embedded_frames.length} of ${N_FRAMES} queued, stride ${stride}`);
-      check("the queued frames are evenly spaced across the window",
-        packed.embedded_frames.every((f, k) => f === k * stride),
-        `[${packed.embedded_frames.join(", ")}]`);
+      check("the recorder queues every frame, the first included",
+        packed.embedded_frames.length === N_FRAMES && packed.embedded_frames.every((f, k) => f === k),
+        `${packed.embedded_frames.length} of ${N_FRAMES} queued`);
       check("the embedding fields are left for the embedder to fill",
         packed.saccade_embedding === null && packed.saccade_weight === null);
       check("WebGazer's streams are full length",
@@ -145,35 +132,40 @@
       embedder.queue = embedder.queue.filter((q) => q.stationId !== 99);
 
       /*
-       * With `record_settle`, the capture trial opens the recorder with the worker held back
-       * (`embedFrom: null`) and names the fixation boundary when the settle ends. Nothing from
-       * the arrival may be queued, and the budget is spread over fixation alone.
+       * The crop cap, without a worker: stations whose frames were queued and never reached.
+       * Past `maxCrops` the crops kept are spread evenly over all of them, and the rest counted.
        */
-      const ARRIVAL = 10;
-      const FIXATION = 20;
-      const fixStride = embedder.strideFor(FIXATION);
-      fakeRecorder.beginCapture({ stationId: 98, expectedFrames: FIXATION, onset: 1000, embedFrom: null });
-      for (let i = 0; i < ARRIVAL; i++) fakeRecorder.record(fakeStage(i), null, null);
-      fakeRecorder.embedFrom(ARRIVAL * 33.3 - 1); // the settle ends just before frame ARRIVAL
-      for (let i = ARRIVAL; i < ARRIVAL + FIXATION; i++) fakeRecorder.record(fakeStage(i), null, null);
-      const settled = fakeRecorder.pack(fakeRecorder.buffer, 1000);
-      check("no frame from the arrival is queued",
-        settled.embedded_frames.every((f) => f >= ARRIVAL),
-        `[${settled.embedded_frames.join(", ")}]`);
-      check("the budget is spread over the fixation window from its first frame",
-        settled.embedded_frames.every((f, k) => f === ARRIVAL + k * fixStride) &&
-          settled.embedded_frames.length === Math.ceil(FIXATION / fixStride),
-        `stride ${fixStride}, [${settled.embedded_frames.join(", ")}]`);
-      check("WebGazer still has every frame, arrival included", settled.n_frames === ARRIVAL + FIXATION,
-        `${settled.n_frames} frames`);
-      embedder.stations.delete(98);
-      embedder.queue = embedder.queue.filter((q) => q.stationId !== 98);
+      {
+        const capped = new DeferredEmbedder({});
+        const capPsych = initJsPsych({});
+        const STATIONS = 10, PER = 20, CAP = 50;
+        for (let s = 0; s < STATIONS; s++) {
+          capPsych.data.get().push({ trial_type: "cookoff-capture", station_id: 1000 + s });
+          for (let i = 0; i < PER; i++) capped.submit(1000 + s, i, crop(i));
+        }
+        capped.queue = []; // no workers: nothing is ever reached
+        const capSummary = capped.finalize(capPsych, true, CAP);
+        const perStation = capPsych.data.get().values().map((r) => (r.crop_frames || []).length);
+        check("the crop cap keeps exactly maxCrops",
+          capSummary.asCrops === CAP && capSummary.cropsDropped === STATIONS * PER - CAP,
+          `${capSummary.asCrops} kept, ${capSummary.cropsDropped} dropped`);
+        check("the kept crops are spread over every station",
+          perStation.every((n) => n === CAP / STATIONS), `[${perStation.join(", ")}]`);
+        const uncapped = new DeferredEmbedder({});
+        const freePsych = initJsPsych({});
+        freePsych.data.get().push({ trial_type: "cookoff-capture", station_id: 2000 });
+        for (let i = 0; i < PER; i++) uncapped.submit(2000, i, crop(i));
+        uncapped.queue = [];
+        const free = uncapped.finalize(freePsych, true, CAP);
+        check("under the cap every crop is kept", free.asCrops === PER && free.cropsDropped === 0,
+          `${free.asCrops} kept`);
+      }
 
-      // A fake station: 30 frames, of which the strided subset is queued.
+      // A fake station, every frame queued.
       const jsPsych = initJsPsych({});
       const frameT = Array.from({ length: expectedFrames }, (_, i) => Math.round(i * 33.3 * 10) / 10);
       const queued = [];
-      for (let i = 0; i < expectedFrames; i++) if (i % stride === 0) queued.push(i);
+      for (let i = 0; i < expectedFrames; i++) queued.push(i);
 
       jsPsych.data.get().push({
         trial_type: "cookoff-capture",
@@ -238,7 +230,7 @@
       embedder.dispose();
       lines.unshift(failures === 0 ? `${lines.length} checks passed\n` : `${failures} CHECK(S) FAILED\n`);
       out.textContent = lines.join("\n");
-      window.deferredCheck = { failures, encodeMs: ms, budget, stride };
+      window.deferredCheck = { failures, encodeMs: ms };
     </script>
   </body>
 </html>
