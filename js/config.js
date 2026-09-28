@@ -28,8 +28,11 @@ window.CookoffConfig = {
    * 1.3.2  Fewer CPU workers: the cores minus three (was two), and one on 4 GB or less (was
    *        two). Two workers on 4-core machines halved the recorder's frame rate. The wait
    *        at the end is 20 s (was 45 s).
+   * 1.3.3  Practice repeats until a round has every color change caught (at most
+   *        `design.practice_max_rounds`, then a screen-out), and the instructions show the
+   *        target with and without the orange dot. Practice rows carry `practice_round`.
    */
-  version: "1.3.2",
+  version: "1.3.3",
 
   /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js
@@ -159,6 +162,9 @@ window.CookoffConfig = {
     probe_rate: 0.3,
     /** Targets in the practice block, which is not analyzed. */
     n_practice: 5,
+    /** Practice repeats until a round has every color change caught; after this many rounds
+     *  without one the participant is screened out (`practice_missed`). 0 means no limit. */
+    practice_max_rounds: 3,
     settle_duration: 600,
     /**
      * Whether the settle phase is recorded as well as the capture window.

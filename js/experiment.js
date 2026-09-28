@@ -976,14 +976,33 @@
     },
   };
 
+  /**
+   * The target twice, at its real size: as it usually is, and with the center dot turned orange.
+   * The same markup and classes as the capture trial, so what is shown is what they will see.
+   */
+  const probeDemo = `<div class="ck-demo-row" aria-hidden="true">
+      <div class="ck-demo">
+        <span class="ck-bullseye"><span class="ck-bullseye-cross"></span>
+          <span class="ck-bullseye-core"></span></span>
+        <span class="ck-demo-label">Usually: keep looking</span>
+      </div>
+      <div class="ck-demo">
+        <span class="ck-bullseye"><span class="ck-bullseye-cross"></span>
+          <span class="ck-bullseye-core ck-core-probe"></span></span>
+        <span class="ck-demo-label">Dot turns <span class="ck-ember">orange</span>: press <kbd>space</kbd></span>
+      </div>
+    </div>`;
+
   const howToPlay = screen(
     "What to do",
     `<p>A target will appear on the screen. <strong>Look at its center</strong> and keep your
      eyes there. When it jumps to a new place, follow it with your eyes.</p>
      <p>Now and then, the small dot in the center will turn <span class="ck-ember">orange</span>.
      When it does, press <kbd>space</kbd>.</p>
+     ${probeDemo}
      <p>Please keep your head as still as you can, and move only your eyes.</p>
-     <p>You'll start with a short practice round.</p>`,
+     <p>You'll start with a short practice round. To move on, press <kbd>space</kbd> every time
+     the dot turns orange.</p>`,
     "Start practice",
   );
 
@@ -1105,15 +1124,33 @@
     data: { grid_level: jsPsych.timelineVariable("grid_level") },
   };
 
-  const practice = {
-    timeline: [station],
-    timeline_variables: buildStations(
+  // Practice, repeated until every color change in a round is caught (js/practice.js).
+  const [practice, practiceGate] = CookoffPractice.build({
+    jsPsych,
+    trial: station,
+    stations: buildStations(
       jsPsych.randomization.shuffle(grid).slice(0, config.design.n_practice),
       -1,
       0.5,
     ),
-    data: { practice: true },
-  };
+    maxRounds: config.design.practice_max_rounds,
+    reminder: (probes, missed) => `<div class="ck-card"><h1>Let's practice once more</h1>
+      <p>The dot turned orange ${probes} time${probes === 1 ? "" : "s"}, and
+      ${missed === probes ? "none of those got a space press" : `${missed} of those didn't get a space press`}.</p>
+      ${probeDemo}
+      <p>Keep your eyes on the center of the target, and press <kbd>space</kbd> as soon as the
+      dot turns orange.</p></div>`,
+    onFail: (rounds) => {
+      Cookoff.recorder?.stop();
+      Cookoff.embedder?.dispose();
+      screenOut(
+        "practice_missed",
+        "Sorry — we couldn't continue",
+        `<p>The study needs a press of the space bar each time the dot turns orange, and after
+         ${rounds} practice rounds some color changes were still being missed.</p>`,
+      );
+    },
+  });
 
   // Drawn now rather than when each block starts, so the block intro can say how long it is.
   const blockStations = Array.from({ length: config.design.n_blocks }, (_, block) =>
@@ -1303,7 +1340,7 @@
   timeline.push(timeSync, warmUp, howToPlay);
   // A practice block of zero targets is not a shorter practice block, it is a jsPsych node with
   // no timeline variables. Diagnostic builds set `n_practice: 0` to mean "skip it".
-  if (config.design.n_practice > 0) timeline.push(practice);
+  if (config.design.n_practice > 0) timeline.push(practice, practiceGate);
 
   for (let block = 0; block < config.design.n_blocks; block++) {
     timeline.push({

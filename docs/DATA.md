@@ -146,7 +146,11 @@ validation grid, `"random"` for the block's fresh random positions), `grid_level
 point, the smallest of saccade.js's nested grids it belongs to: `9` for the 3x3 at 5/50/95%,
 `13` for the four points that make its default 13, `25` for the rest of the 5x5; `null` for a
 test point. An n-point calibration is `grid_level <= n`), `practice` (true for the practice
-block; exclude it). Within a block the grid comes first, then the test points; `index_in_block`
+block; exclude it). From 1.3.3 practice repeats until a round has every color change caught, so
+a session can have several practice rounds: `practice_round` (1, 2, ...) on each practice row
+says which. The `practice_gate` row carries `practice_rounds` and `practice_passed`, and every
+later row `practice_rounds`. A participant still missing color changes after
+`design.practice_max_rounds` (3) rounds is screened out with `screened_out: "practice_missed"`. Within a block the grid comes first, then the test points; `index_in_block`
 gives the order.
 
 Sessions recorded before the 5x5 grid use `"train"` for the 13-point grid and `"test"` for the

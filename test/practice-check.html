@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Practice check</title>
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #16181c;
+        color: #e8e3d9;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      #stage {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Practice gate check</h1>
+    <p>js/practice.js with a stand-in for the capture trial whose outcomes are scripted.</p>
+    <pre id="out">running…</pre>
+    <div id="stage"></div>
+
+    <script src="../js/practice.js"></script>
+    <script>
+      const lines = [];
+      let failures = 0;
+      const out = document.getElementById("out");
+      const check = (name, ok, detail) => {
+        if (!ok) failures++;
+        lines.push(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
+        out.textContent = lines.join("\n");
+      };
+
+      // Five stations, three with a color change, as the experiment's practice has.
+      const STATIONS = [true, false, true, true, false].map((probe, i) => ({ probe, i }));
+
+      // The "Practice again" screen is a button; click it as soon as it appears.
+      new MutationObserver(() => {
+        const button = document.querySelector("#stage .ck-btn");
+        if (button) button.click();
+      }).observe(document.getElementById("stage"), { childList: true, subtree: true });
+
+      /**
+       * One run. `script(round, i)` says whether the color change at station i of that round is
+       * caught. Resolves with what the run did.
+       */
+      function run(script, maxRounds) {
+        return new Promise((resolve) => {
+          const result = { failedAfter: null, reminders: [] };
+          // A fresh display element per run: two jsPsych instances must not share one.
+          const target = document.createElement("div");
+          document.getElementById("stage").replaceChildren(target);
+          const jsPsych = initJsPsych({
+            display_element: target,
+            on_finish: () => resolve({ ...result, data: jsPsych.data.get() }),
+          });
+          const trial = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: "",
+            choices: "NO_KEYS",
+            trial_duration: 0,
+            data: { probe: jsPsych.timelineVariable("probe"), i: jsPsych.timelineVariable("i") },
+            on_finish: (data) => {
+              data.probe_outcome = data.probe
+                ? script(data.practice_round, data.i) ? "hit" : "miss"
+                : "correct_rejection";
+            },
+          };
+          const nodes = CookoffPractice.build({
+            jsPsych,
+            trial,
+            stations: STATIONS,
+            maxRounds,
+            reminder: (probes, missed) => {
+              result.reminders.push([probes, missed]);
+              return `<p>${missed} of ${probes}</p>`;
+            },
+            onFail: (rounds) => {
+              result.failedAfter = rounds;
+            },
+          });
+          jsPsych.run(nodes);
+        });
+      }
+
+      (async () => {
+        // Caught everything first time: one round, no reminder.
+        let r = await run(() => true, 3);
+        check("a clean first round ends practice", r.data.filter({ screening: "practice_gate" }).values()[0].practice_rounds === 1);
+        check("no reminder after a clean round", r.reminders.length === 0);
+        check("no screen-out after a clean round", r.failedAfter === null);
+        check("each round's five stations are recorded",
+          r.data.filter({ practice: true }).count() === 5, `${r.data.filter({ practice: true }).count()} rows`);
+
+        // Missed one in round 1, all in round 2: two rounds, one reminder with this round's counts.
+        r = await run((round, i) => round >= 2 || i !== 2, 3);
+        const gate = r.data.filter({ screening: "practice_gate" }).values()[0];
+        check("a miss repeats practice", gate.practice_rounds === 2, `${gate.practice_rounds} rounds`);
+        check("the reminder counts the round just finished",
+          r.reminders.length === 1 && r.reminders[0][0] === 3 && r.reminders[0][1] === 1,
+          JSON.stringify(r.reminders));
+        check("passing the second round continues the study", r.failedAfter === null && gate.practice_passed === true);
+        check("rows are labeled by round",
+          r.data.filter({ practice: true, practice_round: 1 }).count() === 5 &&
+            r.data.filter({ practice: true, practice_round: 2 }).count() === 5);
+        check("the round count is on every later row",
+          r.data.filter({ screening: "practice_gate" }).values()[0].practice_rounds === 2);
+
+        // Never responds: three rounds, two reminders, then the screen-out.
+        r = await run(() => false, 3);
+        check("never responding stops after max rounds", r.failedAfter === 3, `failed after ${r.failedAfter}`);
+        check("a reminder between rounds but not after the last",
+          r.reminders.length === 2 && r.reminders.every(([p, m]) => p === 3 && m === 3), JSON.stringify(r.reminders));
+        check("the gate records the failure",
+          r.data.filter({ screening: "practice_gate" }).values()[0].practice_passed === false);
+
+        lines.unshift(failures === 0 ? `${lines.length} checks passed\n` : `${failures} CHECK(S) FAILED\n`);
+        out.textContent = lines.join("\n");
+        window.practiceCheck = { failures };
+      })().catch((err) => {
+        out.textContent = "the run threw:\n" + (err && err.stack);
+      });
+    </script>
+  </body>
+</html>

@@ -488,3 +488,28 @@ html.ck-task body {
     transition-duration: 1ms;
   }
 }
+
+/* The instructions' picture of the target, as it usually is and with the probe. */
+.ck-demo-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem 3rem;
+  margin: 1.4rem 0;
+}
+
+.ck-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ck-demo .ck-bullseye {
+  transform: none;
+  transition: none;
+}
+
+.ck-demo-label {
+  font-size: 0.9rem;
+}

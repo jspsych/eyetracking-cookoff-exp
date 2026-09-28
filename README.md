@@ -523,6 +523,7 @@ Three pages, no build step. Serve the repo and open them.
 |---|---|
 | `test/port-check.html` | runs `js/webgazer-features.js` and webgazer 3.5.3's own functions over the same pixels and demands identical bytes, including eye boxes that run off the edge of the frame |
 | `test/pipeline-check.html` | loads the real ONNX encoder and runs a synthetic frame through both feature cuts and the packing, with no camera; reports the per-frame cost on this machine |
+| `test/practice-check.html` | the practice gate with scripted outcomes: a clean round ends practice, a miss repeats it with a reminder, never responding screens out after the last round |
 | `test/trial-check.html` | drives the capture trial on a virtual clock: probe timing, response scoring, and the capture window stretching to cover a late color change |
 | `test/pursuit-check.html` | the moving-target trial on a virtual clock (`requestAnimationFrame` included): the velocity profile, the turnarounds, and that the logged path and the gaze frames share a clock |
 | `test/deferred-check.html` | the no-WebGPU path with no camera: the real worker and wasm session, queueing every frame, the crop cap, the deliberately-missed deadline, and the write-back into a jsPsych dataset |
@@ -552,6 +553,7 @@ js/plugin-cookoff-capture.js    one station: land, settle, capture, color change
 js/plugin-cookoff-pursuit.js    the moving target, with its painted path logged
 js/encoding.js                  float16 / uint8 packing
 js/experiment.js                the timeline
+js/practice.js                  practice, repeated until every color change is caught
 js/save.js                      download or DataPipe
 analysis/replay.py              offline calibration and accuracy for both trackers
 analysis/pursuit.py             what the timing measurement is worth, from the moving target
