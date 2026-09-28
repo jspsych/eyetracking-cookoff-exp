@@ -251,7 +251,7 @@ Three things keep that from quietly becoming a bias:
   tracker on eight frames and the other on thirty would compare sample sizes, not trackers.
 - Nothing is silently dropped. Frames still queued when the drain deadline expires have their
   **raw crops** written into the data instead — twenty times the bytes, identical information.
-  Up to 3000 crops a session (`encoder.max_crops_saved`, to stay under DataPipe's 32 MB upload
+  Up to 5000 crops a session (`encoder.max_crops_saved`: crops barely gzip, and DataPipe has a 32 MB upload
   limit); past that they are thinned evenly and the dropped frames counted.
   `python analysis/replay.py session.json --encode-crops lib/saccade/eye_embedding.onnx` folds
   them back in.

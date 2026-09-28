@@ -130,9 +130,11 @@ window.CookoffConfig = {
      *  The pool gets the cores minus two, and less on a machine with 4 GB or under. */
     max_workers: 4,
     /** Most eye crops written into the data for frames the pool never reached, thinned evenly
-     *  across the session past it. Each is about 7 KB of base64, so 3000 is about 21 MB before
-     *  gzip: with the rest of a session, safely under DataPipe's 32 MB request limit. */
-    max_crops_saved: 3000,
+     *  across the session past it. The upload is gzipped, but eye images barely compress: a
+     *  crop is 6.9 KB of base64 and 4.8 KB gzipped (681 pilot crops), and the rest of a session
+     *  about 1.8 MB gzipped. 5000 is about 26 MB in all, under DataPipe's 32 MB request limit
+     *  with room for crops that compress worse. A whole session of crops (~6800) would not fit. */
+    max_crops_saved: 5000,
     /** How long the participant may be held on the "finishing up" screen at the end while the
      *  encoder catches up, in ms. Between blocks there is no wait beyond the fixed break
      *  (`design.break_ms`), which the encoder uses anyway. */

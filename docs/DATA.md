@@ -91,7 +91,7 @@ That leaves two streams of different lengths, and three fields to line them up:
 - **`crop_frames`** and **`saccade_crop`** — frames the worker did not reach before the drain
   deadline. Their raw 144x36 crops are in the data instead, twenty times the bytes and exactly
   the same information; run them through the model offline. `null` when the pool kept up. At
-  most `encoder.max_crops_saved` (3000) crops are kept per session, so the upload stays under
+  most `encoder.max_crops_saved` (5000) crops are kept per session, so the gzipped upload stays under
   DataPipe's 32 MB limit; past it they are thinned evenly across the session, and the frames
   dropped are counted in `frames_dropped_unencoded`.
 - **`station_id`** — the station's serial number, which is how the worker's results found this
