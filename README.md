@@ -20,25 +20,19 @@ stops waiting for it; see [Slow machines](#slow-machines).
 
 ## Hosting
 
-The study runs from https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff/, not GitHub Pages,
-because that server sends the two headers that make the page *cross-origin isolated*:
+The study runs from GitHub Pages: every push to `main` is live once the Pages build finishes.
+The page is not cross-origin isolated there, and does not need to be: the CPU encoder is a pool
+of single-threaded workers, each encoding its own frames, which works on any host (splitting one
+frame across threads needed isolation and did not scale). `cross_origin_isolated` in the data
+says whether a session had it.
 
-    Cross-Origin-Opener-Policy: same-origin
-    Cross-Origin-Embedder-Policy: require-corp
-
-The CPU encoder no longer needs it: it is a pool of single-threaded workers, each encoding its
-own frames, which works on any host (splitting one frame across threads needed isolation and did
-not scale). Isolation is kept because it costs nothing and lets `test/pool-check.html` report
-memory. `cross_origin_isolated` in the data says whether a session had it.
-
-    scripts/deploy-vassar.sh          # what would change
-    scripts/deploy-vassar.sh --go     # copy it, then check the headers and the version served
-
-The Apache side is `deploy/eyetracking-cookoff.conf`, installed once in `/etc/httpd/conf.d/`;
-it applies to the experiment's directory only. ONNX Runtime is served from `lib/ort/`
-(`scripts/sync-ort.sh`), because a worker's threads can only start from the page's own origin.
-`python3 scripts/serve.py 8791 --isolate` sends the same headers locally, and
-`test/pool-check.html` times the CPU encoder with 1 to 4 workers (run it in a foreground tab).
+1.3.0 was also served from https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff/,
+which sends the COOP/COEP headers (`deploy/eyetracking-cookoff.conf`, deployed with
+`scripts/deploy-vassar.sh`). That copy is no longer updated; from 1.3.1 GitHub Pages is the only
+deployment. ONNX Runtime is served from `lib/ort/` (`scripts/sync-ort.sh`), so the workers do
+not depend on the CDN. `python3 scripts/serve.py 8791 --isolate` sends the isolation headers
+locally, and `test/pool-check.html` times the CPU encoder with 1 to 4 workers (run it in a
+foreground tab).
 
 ## Running it
 
