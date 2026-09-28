@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the experiment to https://cogsciresearch.vassar.edu/eyetracking-cookoff/.
+# Deploy the experiment to https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff/.
 #
 #   scripts/deploy-vassar.sh            # show what would change, change nothing
 #   scripts/deploy-vassar.sh --go       # copy the files
@@ -14,8 +14,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${COOKOFF_HOST:-cogsci}"
-DIR="/var/www/html/eyetracking-cookoff"
-URL="https://cogsciresearch.vassar.edu/eyetracking-cookoff"
+DIR="/var/www/html/jdeleeuw/eyetracking-cookoff"
+URL="https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff"
 VERSION="$(grep -oE 'version: "[0-9.]+"' "$HERE/js/config.js" | head -1 | grep -oE '[0-9.]+')"
 
 [ -f "$HERE/lib/ort/ort.bundle.min.mjs" ] || { echo "lib/ort/ is missing: run scripts/sync-ort.sh" >&2; exit 1; }

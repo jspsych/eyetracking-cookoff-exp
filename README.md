@@ -20,7 +20,7 @@ stops waiting for it; see [Slow machines](#slow-machines).
 
 ## Hosting
 
-The study runs from https://cogsciresearch.vassar.edu/eyetracking-cookoff/, not GitHub Pages,
+The study runs from https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff/, not GitHub Pages,
 because that server sends the two headers that make the page *cross-origin isolated*:
 
     Cross-Origin-Opener-Policy: same-origin
