@@ -14,8 +14,8 @@ window.CookoffConfig = {
    *        eye strip (`eye_image_stats`) and the camera's settings (`camera_settings`).
    * 1.3.0  Strided mode is only ever forced now: on integrated graphics it halved the camera
    *        loop and delayed key presses. Too slow for inline, WebGPU machines use the CPU
-   *        worker again, which runs multi-threaded (up to 2) when the page is cross-origin
-   *        isolated, with ONNX Runtime served from lib/ort/. camera_fps measured over wall-clock
+   *        worker again, now a pool of single-threaded workers (up to 4) each encoding its own
+   *        frames, with ONNX Runtime served from lib/ort/. camera_fps measured over wall-clock
    *        time. Served from cogsciresearch.vassar.edu, which sends the COOP/COEP headers.
    * 1.2.0  "strided" encoder mode: on WebGPU too slow for every frame, the encoder stays on
    *        the GPU and embeds whichever frames it has time for, instead of moving to the CPU
@@ -123,11 +123,9 @@ window.CookoffConfig = {
     /** Strided mode: the most skipped frames kept for encoding in the downtime. Each holds a
      *  5 KB eye crop in memory only, so 8000 is about 40 MB; past it, frames go unembedded. */
     backlog_max_frames: 8000,
-    /** Most threads for the CPU encoder's worker, used only when the page is cross-origin
-     *  isolated (served with COOP/COEP headers, as from the Vassar server). Otherwise one.
-     *  Two, measured: on an M3 from the Vassar server, one thread took 108.6 ms an encode, two
-     *  59.8 (1.82x), and four 79.8, slower than two. The model is too small to split further. */
-    max_worker_threads: 2,
+    /** Most workers in the CPU encoder's pool: single-threaded, each encoding its own frames.
+     *  The pool gets the cores minus two, and less on a machine with 4 GB or under. */
+    max_workers: 4,
     /** Fraction of a station's wall-clock time the worker is assumed to get. Below 1 because
      *  the machine is also running the camera, MediaPipe and the page. */
     worker_share: 0.85,

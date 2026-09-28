@@ -701,19 +701,20 @@
   }
 
   /**
-   * How many threads to give the CPU encoder's worker.
+   * How many workers the CPU encoder runs, each single-threaded, each encoding its own frames.
    *
-   * One unless the page is cross-origin isolated, which is the only way a worker gets threads.
-   * Then the cores minus two, capped at `max_worker_threads` (two): the page, the camera and
-   * MediaPipe still need the rest, and starving them would slow the camera loop, which is
-   * exactly what strided mode did to the GPU. Past two, the model is too small to split
-   * usefully: four threads encoded slower than two.
+   * The cores minus two, so the page, the camera and MediaPipe keep theirs: starving them slows
+   * the camera loop, which is exactly what strided mode did to the GPU. Capped by memory too,
+   * since every worker holds the model and ONNX Runtime: one on a 2 GB machine, two on 4 GB.
+   * `navigator.deviceMemory` is Chrome's (rounded, at most 8); elsewhere cores alone decide.
    */
-  function workerThreads() {
-    if (!window.crossOriginIsolated) return 1;
+  function workerCount() {
     const cores = navigator.hardwareConcurrency || 2;
-    return Math.max(1, Math.min(config.encoder.max_worker_threads, cores - 2));
+    const memory = navigator.deviceMemory;
+    const byMemory = memory == null ? Infinity : memory <= 2 ? 1 : memory <= 4 ? 2 : Infinity;
+    return Math.max(1, Math.min(config.encoder.max_workers, cores - 2, byMemory));
   }
+
 
   /**
    * The longest encode that can run inline on this machine.
@@ -833,18 +834,18 @@
     }
 
     status.textContent = "Your computer needs a little longer to get ready. This can take a minute…";
-    // The worker's ONNX Runtime comes from this origin (lib/ort/, scripts/sync-ort.sh), not the
-    // CDN: its threads are Workers started from ORT's own script URL, and a page may only start
-    // workers from its own origin. They exist only when the page is cross-origin isolated,
-    // which takes the COOP/COEP headers the Vassar server sends; elsewhere this is one thread.
+    // A pool of single-threaded workers, each encoding different frames (see DeferredEmbedder).
+    // Their ONNX Runtime comes from this origin (lib/ort/, scripts/sync-ort.sh), so the page
+    // does not depend on the CDN once the model is here.
     const ortDir = new URL("lib/ort/", window.location.href).href;
-    const threads = workerThreads();
+    const workers = workerCount();
     const embedder = new DeferredEmbedder({
       workerUrl: "js/embed-worker.js",
       modelUrl: new URL(config.assets.modelUrl, window.location.href).href,
       ortUrl: `${ortDir}ort.bundle.min.mjs`,
       wasmDir: ortDir,
-      numThreads: threads,
+      workers,
+      numThreads: 1,
     });
 
     try {
@@ -863,8 +864,9 @@
       return {
         ...common,
         encoder_mode: "deferred",
-        encoder_worker_threads: embedder.threads ? embedder.threads.count : 1,
-        encoder_worker_threads_requested: threads,
+        encoder_workers: embedder.slots.length,
+        encoder_workers_requested: workers,
+        encoder_worker_latency_ms: Math.round(embedder.latencyMs * 10) / 10,
         encoder_worker_ms: Math.round(workerMs * 10) / 10,
         encoder_provider: "wasm-worker",
         encoder_budget_per_station: budget,

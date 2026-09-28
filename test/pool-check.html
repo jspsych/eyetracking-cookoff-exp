@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>pool check</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 46rem; }
+      table { border-collapse: collapse; margin-top: 1rem; }
+      td, th { padding: 0.25rem 0.9rem; text-align: right; border-bottom: 1px solid #ddd; }
+      th:first-child, td:first-child { text-align: left; }
+      .fail { color: #b00020; }
+    </style>
+  </head>
+  <body>
+    <h1>CPU encoder: worker pool</h1>
+    <p>
+      Pushes 40 frames through the deferred encoder's real queue with 1 to 4 single-threaded
+      workers, each encoding its own frames, and reports throughput. Run it in a
+      <strong>foreground</strong> tab: a background tab is throttled and reads slow.
+    </p>
+    <p id="env"></p>
+    <table>
+      <thead><tr><th>workers</th><th>started</th><th>ms per encode (one worker)</th><th>frames per second</th><th>speed-up</th><th>page memory</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="status">Running…</p>
+
+    <script src="../js/deferred-embedder.js"></script>
+    <script type="module">
+      const cores = navigator.hardwareConcurrency || 2;
+      document.getElementById("env").textContent =
+        `hardwareConcurrency: ${cores} · deviceMemory: ${navigator.deviceMemory ?? "?"} GB · crossOriginIsolated: ${window.crossOriginIsolated}`;
+      const ortDir = new URL("../lib/ort/", location.href).href;
+      const rows = document.getElementById("rows");
+      const results = [];
+      const FRAMES = 40;
+      // Chrome, and only on an isolated page: the whole page's memory, workers included.
+      async function memoryMB() {
+        if (!window.crossOriginIsolated || !performance.measureUserAgentSpecificMemory) return null;
+        try {
+          const m = await Promise.race([performance.measureUserAgentSpecificMemory(),
+                                       new Promise((r) => setTimeout(() => r(null), 20000))]);
+          return m ? Math.round(m.bytes / 1e6) : null;
+        } catch { return null; }
+      }
+      let base = null;
+      try {
+        for (const n of [1, 2, 3, 4].filter((k) => k <= cores)) {
+          const embedder = new DeferredEmbedder({
+            workerUrl: "../js/embed-worker.js",
+            modelUrl: new URL("../lib/saccade/eye_embedding.onnx", location.href).href,
+            ortUrl: `${ortDir}ort.bundle.min.mjs`,
+            wasmDir: ortDir,
+            workers: n,
+          });
+          await embedder.init();
+          await embedder.measure(5);
+          const crop = new Uint8Array(144 * 36).map((_, i) => (i * 37) % 256);
+          const t0 = performance.now();
+          for (let f = 0; f < FRAMES; f++) embedder.submit(1, f, crop);
+          const drained = await embedder.drain(120000);
+          const fps = FRAMES / ((performance.now() - t0) / 1000);
+          if (base == null) base = fps;
+          const mem = await memoryMB();
+          results.push({ workers: n, started: embedder.slots.length, latencyMs: Math.round(embedder.latencyMs),
+                         fps: Math.round(fps * 10) / 10, speedup: Math.round((fps / base) * 100) / 100, memoryMB: mem, left: drained.left });
+          rows.insertAdjacentHTML("beforeend",
+            `<tr><td>${n}</td><td>${embedder.slots.length}</td><td>${Math.round(embedder.latencyMs)}</td><td>${fps.toFixed(1)}</td><td>${(fps / base).toFixed(2)}×</td><td>${mem == null ? "–" : mem + " MB"}</td></tr>`);
+          embedder.dispose();
+        }
+        document.getElementById("status").textContent = "Done.";
+      } catch (err) {
+        document.getElementById("status").innerHTML = `<span class="fail">Failed: ${err && err.message}</span>`;
+        results.push({ error: String(err && err.message) });
+        console.error(err);
+      }
+      window.__poolCheck = { cores, deviceMemory: navigator.deviceMemory, results };
+      console.log("pool-check", JSON.stringify(window.__poolCheck));
+    </script>
+  </body>
+</html>

@@ -26,11 +26,10 @@ because that server sends the two headers that make the page *cross-origin isola
     Cross-Origin-Opener-Policy: same-origin
     Cross-Origin-Embedder-Policy: require-corp
 
-Only an isolated page gives the CPU encoder's worker threads. On the machines that cannot encode
-inline, which is most participants' integrated-graphics laptops, that is the difference between
-four and eight embeddings a station. GitHub Pages cannot send headers, so there the worker runs
-one thread; everything else works the same. `cross_origin_isolated` in the data says which a
-session had.
+The CPU encoder no longer needs it: it is a pool of single-threaded workers, each encoding its
+own frames, which works on any host (splitting one frame across threads needed isolation and did
+not scale). Isolation is kept because it costs nothing and lets `test/pool-check.html` report
+memory. `cross_origin_isolated` in the data says whether a session had it.
 
     scripts/deploy-vassar.sh          # what would change
     scripts/deploy-vassar.sh --go     # copy it, then check the headers and the version served
@@ -39,7 +38,7 @@ The Apache side is `deploy/eyetracking-cookoff.conf`, installed once in `/etc/ht
 it applies to the experiment's directory only. ONNX Runtime is served from `lib/ort/`
 (`scripts/sync-ort.sh`), because a worker's threads can only start from the page's own origin.
 `python3 scripts/serve.py 8791 --isolate` sends the same headers locally, and
-`test/threads-check.html` times the worker at 1, 2 and 4 threads.
+`test/pool-check.html` times the CPU encoder with 1 to 4 workers (run it in a foreground tab).
 
 ## Running it
 

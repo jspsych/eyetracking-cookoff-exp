@@ -32,50 +32,76 @@
   const CROP_LEN = 144 * 36;
 
   /**
+   * A pool of workers, each single-threaded with its own copy of the model, each encoding a
+   * different frame. Frames are independent, so throughput scales with the pool where splitting
+   * one frame's encode across threads did not: the model is too small for that (on an M3, four
+   * threads encoded slower than two). It also needs no cross-origin isolation, so it works on
+   * any host. The cost is memory: every worker holds the model and ONNX Runtime.
+   *
    * @param {object} opts
    * @param {string} opts.workerUrl
    * @param {string} opts.modelUrl
    * @param {string} opts.ortUrl - the ESM entry point for onnxruntime-web
    * @param {string} opts.wasmDir - directory holding onnxruntime-web's .wasm
+   * @param {number} [opts.workers=1] - how many workers to run
+   * @param {number} [opts.numThreads=1] - threads per worker (only on an isolated page)
    */
   function DeferredEmbedder(opts) {
     this.opts = opts;
-    this.worker = null;
+    this.slots = []; // [{ worker, inflight }]
+    this.worker = null; // the first worker, for anything that needs just one
     this.ready = null;
     this.identity = null;
 
     this.queue = [];
-    this.inflight = null;
     this.nextId = 1;
-    this.pendingById = new Map();
+    this.pendingById = new Map(); // id -> { resolve, reject } (awaited) or { slot, item } (queued)
 
     /** stationId -> { indices: number[], crops: Map, results: Map } */
     this.stations = new Map();
 
-    this.encodeMs = null;
+    this.encodeMs = null; // effective ms per frame across the whole pool: what the budget uses
+    this.latencyMs = null; // ms for one encode on one worker
     this.encoded = 0;
     this.failed = 0;
     this.budget = Infinity;
     this.onProgress = null;
   }
 
-  /** Boot the worker and measure what one encode costs here. Resolves with the measurement. */
+  /**
+   * Start the pool. Resolves once at least one worker is ready; a worker that fails to start
+   * (out of memory, say) is dropped rather than failing the whole encoder.
+   */
   DeferredEmbedder.prototype.init = function () {
     if (this.ready) return this.ready;
-    this.ready = new Promise((resolve, reject) => {
-      const worker = new Worker(this.opts.workerUrl, { type: "module" });
-      this.worker = worker;
+    const count = Math.max(1, this.opts.workers || 1);
+    const boots = [];
+    for (let i = 0; i < count; i++) boots.push(this.startWorker());
+    this.ready = Promise.allSettled(boots).then((outcomes) => {
+      this.slots = outcomes.filter((o) => o.status === "fulfilled").map((o) => o.value);
+      const failures = outcomes.filter((o) => o.status === "rejected");
+      if (this.slots.length === 0) throw failures[0].reason;
+      if (failures.length) console.warn(`cook-off: ${failures.length} embed worker(s) did not start`);
+      this.worker = this.slots[0].worker;
+      return this.identity;
+    });
+    return this.ready;
+  };
 
+  DeferredEmbedder.prototype.startWorker = function () {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(this.opts.workerUrl, { type: "module" });
+      const slot = { worker, inflight: null };
       worker.onmessage = (event) => {
         const message = event.data;
         if (message.type === "ready") {
           this.threads = { isolated: !!message.crossOriginIsolated, count: message.numThreads || 1 };
-          this.identity = {
+          this.identity = this.identity || {
             dim: message.dim,
             emitsWeight: message.emitsWeight,
             sha256: message.sha256,
           };
-          resolve(this.identity);
+          resolve(slot);
         } else if (message.type === "result") {
           this.settle(message);
         } else if (message.type === "error") {
@@ -84,7 +110,6 @@
         }
       };
       worker.onerror = (event) => reject(new Error(event.message || "the embed worker failed"));
-
       worker.postMessage({
         type: "init",
         ortUrl: this.opts.ortUrl,
@@ -93,7 +118,6 @@
         numThreads: this.opts.numThreads || 1,
       });
     });
-    return this.ready;
   };
 
   /**
@@ -105,24 +129,32 @@
     const n = samples || 3;
     const crop = new Uint8Array(CROP_LEN);
     for (let i = 0; i < CROP_LEN; i++) crop[i] = (i * 37) % 256;
+    const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
-    const times = [];
+    // Throughput, which is what the budget needs: rounds of one encode on every worker at once.
+    // With one worker this is simply the latency of one encode.
+    const rounds = [];
     for (let i = 0; i < n; i++) {
       const started = performance.now();
-      await this.encode(crop.slice());
-      times.push(performance.now() - started);
+      await Promise.all(this.slots.map((slot) => this.encodeOn(slot, crop.slice())));
+      rounds.push(performance.now() - started);
     }
-    times.sort((a, b) => a - b);
-    this.encodeMs = times[Math.floor(times.length / 2)]; // median: one stray scheduling hiccup
+    const round = median(rounds); // median: one stray scheduling hiccup
+    this.latencyMs = round;
+    this.encodeMs = round / this.slots.length;
     return this.encodeMs;
   };
 
-  /** One encode, awaited. Used only by `measure`; the recorder never awaits the worker. */
+  /** One encode on the first worker, awaited. The recorder never awaits the pool. */
   DeferredEmbedder.prototype.encode = function (crop) {
+    return this.encodeOn(this.slots[0], crop);
+  };
+
+  DeferredEmbedder.prototype.encodeOn = function (slot, crop) {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.pendingById.set(id, { resolve, reject });
-      this.worker.postMessage({ type: "embed", id, crop: crop.buffer }, [crop.buffer]);
+      slot.worker.postMessage({ type: "embed", id, crop: crop.buffer }, [crop.buffer]);
     });
   };
 
@@ -160,36 +192,42 @@
     this.pump();
   };
 
-  /** Keep exactly one encode in flight; the worker has one session and one input tensor. */
+  /**
+   * Give every idle worker the next queued frame. One encode per worker at a time: each has
+   * one session and one input tensor.
+   */
   DeferredEmbedder.prototype.pump = function () {
-    if (this.inflight || this.queue.length === 0 || !this.worker) return;
-    const item = this.queue.shift();
-    const station = this.stations.get(item.stationId);
-    const crop = station && station.crops.get(item.frameIndex);
-    if (!crop) return this.pump();
-
-    const id = this.nextId++;
-    this.inflight = { id, item };
-    this.pendingById.set(id, null); // marker: this one is driven by the queue, not awaited
-    // A copy is transferred, so the original stays available as the fallback if the worker
-    // never gets to it or fails.
-    const transfer = crop.slice();
-    this.worker.postMessage({ type: "embed", id, crop: transfer.buffer }, [transfer.buffer]);
+    for (const slot of this.slots) {
+      while (!slot.inflight && this.queue.length) {
+        const item = this.queue.shift();
+        const station = this.stations.get(item.stationId);
+        const crop = station && station.crops.get(item.frameIndex);
+        if (!crop) continue;
+        const id = this.nextId++;
+        slot.inflight = { id, item };
+        this.pendingById.set(id, { slot, item }); // driven by the queue, not awaited
+        // A copy is transferred, so the original stays available as the fallback if the worker
+        // never gets to it or fails.
+        const transfer = crop.slice();
+        slot.worker.postMessage({ type: "embed", id, crop: transfer.buffer }, [transfer.buffer]);
+      }
+    }
   };
 
   DeferredEmbedder.prototype.settle = function (message) {
-    const awaited = this.pendingById.get(message.id);
+    const pending = this.pendingById.get(message.id);
     this.pendingById.delete(message.id);
+    if (!pending) return;
 
-    if (awaited) {
+    if (pending.resolve) {
       // From `encode()`: someone is waiting on this specific one.
-      if (message.type === "error") awaited.reject(new Error(message.message));
-      else awaited.resolve({ embedding: new Float32Array(message.embedding), weight: message.weight });
+      if (message.type === "error") pending.reject(new Error(message.message));
+      else pending.resolve({ embedding: new Float32Array(message.embedding), weight: message.weight });
       return;
     }
 
-    const inflight = this.inflight;
-    this.inflight = null;
+    const inflight = pending.slot.inflight;
+    pending.slot.inflight = null;
     if (inflight && inflight.id === message.id) {
       const station = this.stations.get(inflight.item.stationId);
       if (message.type === "error") {
@@ -204,7 +242,8 @@
         station.crops.delete(inflight.item.frameIndex);
         this.encoded++;
         if (typeof message.ms === "number") {
-          this.encodeMs = this.encodeMs == null ? message.ms : this.encodeMs * 0.8 + message.ms * 0.2;
+          this.latencyMs = this.latencyMs == null ? message.ms : this.latencyMs * 0.8 + message.ms * 0.2;
+          this.encodeMs = this.latencyMs / this.slots.length;
         }
       }
     }
@@ -213,7 +252,7 @@
   };
 
   DeferredEmbedder.prototype.pending = function () {
-    return this.queue.length + (this.inflight ? 1 : 0);
+    return this.queue.length + this.slots.filter((slot) => slot.inflight).length;
   };
 
   /**
@@ -300,7 +339,8 @@
   };
 
   DeferredEmbedder.prototype.dispose = function () {
-    if (this.worker) this.worker.terminate();
+    for (const slot of this.slots) slot.worker.terminate();
+    this.slots = [];
     this.worker = null;
     this.stations.clear();
     this.queue = [];
