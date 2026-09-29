@@ -33,8 +33,10 @@ window.CookoffConfig = {
    *        target with and without the orange dot. Practice rows carry `practice_round`.
    * 1.4.0  The version the main data collection runs on. At most 3 CPU workers (was 4), and
    *        the welcome screen says that small images of the eye region may be saved.
+   * 1.4.1  Saving only: a retried upload refused as FILE_EXISTS counts as saved (the first
+   *        attempt was stored). Nothing recorded changes.
    */
-  version: "1.4.0",
+  version: "1.4.1",
 
   /**
    * Where the heavy assets live. The ONNX encoder is served from this repo because saccade.js

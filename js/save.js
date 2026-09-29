@@ -37,7 +37,8 @@
    *
    * 201 is stored and 202 is accepted and queued. DataPipe says to treat both as success and
    * not resubmit. A 400 is DataPipe refusing the data (collection off, session limit reached),
-   * which resending will not change, so it is marked final.
+   * which resending will not change, so it is marked final — except FILE_EXISTS, which means an
+   * earlier attempt of this same upload was stored, and counts as success.
    */
   async function toDataPipe(json, experimentId, filename) {
     const body = JSON.stringify({ experimentID: experimentId, filename, data: json });
@@ -69,6 +70,12 @@
       // no body to read
     }
     reason = String(reason || "").trim().slice(0, 300);
+    // FILE_EXISTS means this very file is already stored. A large session can take long enough
+    // that the first attempt is stored but its reply never arrives, and the retry is then refused
+    // as a duplicate. The name carries the participant ID and the time to the second, so no one
+    // else's file can collide with it. In the first 1.4.0 batch this told six participants whose
+    // data had arrived that their upload failed.
+    if (response.status === 400 && /FILE_EXISTS/.test(reason)) return "exists";
     const error = new Error(`DataPipe returned ${response.status}${reason ? `: ${reason}` : ""}`);
     error.final = response.status >= 400 && response.status < 500;
     throw error;
