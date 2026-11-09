@@ -18,6 +18,22 @@ On a machine with no WebGPU that 20 ms becomes one to several hundred on single-
 which is longer than a camera frame. There the encoder moves to a Web Worker and the frame loop
 stops waiting for it; see [Slow machines](#slow-machines).
 
+## About this repository
+
+This is the experiment and analysis code for the validation study in the saccade.js paper
+(source: <https://github.com/jspsych/saccadejs-paper>), which compares saccade.js and WebGazer
+on the same webcam sessions from 203 Prolific participants.
+
+- **The experiment as run.** `index.html` and `js/`, at tag `v1.4.1` (the main data collection
+  ran on versions 1.4.0 and 1.4.1; see the version notes in `js/config.js`). `lib/` holds the
+  saccade.js build and model it ran with.
+- **Try it.** A copy that saves no data is at <https://jspsych.github.io/saccadejs-demos/>.
+- **The data.** The de-identified validation dataset is on Zenodo:
+  <https://doi.org/10.5281/zenodo.23213276>. `docs/DATA.md` documents the per-session format.
+- **The analysis.** `analysis/` holds the per-session replay scripts described below. The
+  paper's own numbers and figures are produced by the R code in the saccadejs-paper repository
+  (`R/validation.R`), which reads the Zenodo dataset.
+
 ## Hosting
 
 The study runs from GitHub Pages: every push to `main` is live once the Pages build finishes.
@@ -26,10 +42,8 @@ of single-threaded workers, each encoding its own frames, which works on any hos
 frame across threads needed isolation and did not scale). `cross_origin_isolated` in the data
 says whether a session had it.
 
-1.3.0 was also served from https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff/,
-which sends the COOP/COEP headers (`deploy/eyetracking-cookoff.conf`, deployed with
-`scripts/deploy-vassar.sh`). That copy is no longer updated; from 1.3.1 GitHub Pages is the only
-deployment. ONNX Runtime is served from `lib/ort/` (`scripts/sync-ort.sh`), so the workers do
+1.3.0 was also served from a university web server that sent the COOP/COEP headers; from 1.3.1
+GitHub Pages is the only deployment. ONNX Runtime is served from `lib/ort/` (`scripts/sync-ort.sh`), so the workers do
 not depend on the CDN. `python3 scripts/serve.py 8791 --isolate` sends the isolation headers
 locally, and `test/pool-check.html` times the CPU encoder with 1 to 4 workers (run it in a
 foreground tab).
@@ -54,7 +68,8 @@ Then open <http://localhost:8777/index.html> in Chrome or Edge. A webcam and a s
 setup screen.
 
 `scripts/sync-saccade.sh` takes the path to the saccade.js repo as an optional argument and
-defaults to `../saccadejs`. `lib/` is gitignored — re-run the script after rebuilding saccade.js.
+defaults to `../saccadejs`. `lib/` is committed, because GitHub Pages serves it — re-run the
+script after rebuilding saccade.js.
 
 ### A short build for the moving-target block
 
