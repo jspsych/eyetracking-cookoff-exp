@@ -18,25 +18,44 @@ On a machine with no WebGPU that 20 ms becomes one to several hundred on single-
 which is longer than a camera frame. There the encoder moves to a Web Worker and the frame loop
 stops waiting for it; see [Slow machines](#slow-machines).
 
+## About this repository
+
+This is the experiment and analysis code for the validation study in the saccade.js paper
+(source: <https://github.com/jspsych/saccadejs-paper>), which compares saccade.js and WebGazer
+on the same webcam sessions from 203 Prolific participants.
+
+- **The experiment as run.** `index.html` and `js/`, at tag `v1.4.1` (the main data collection
+  ran on versions 1.4.0 and 1.4.1; see the version notes in `js/config.js`). `lib/` holds the
+  saccade.js build and model it ran with.
+- **Try it.** A copy that saves no data is at <https://jspsych.github.io/saccadejs-demos/>.
+- **The data.** The de-identified validation dataset is on Zenodo:
+  <https://doi.org/10.5281/zenodo.23213276>. `docs/DATA.md` documents the per-session format.
+  It was built from the raw sessions by `analysis/encode_crops.py` and then
+  `analysis/build_dataset.py` (see [Releasing the data](#releasing-the-data)).
+- **Status.** Data collection is closed, and the experiment is no longer hosted. Run it locally
+  (see [Running it](#running-it)), or try the demo above.
+- **The analysis.** `analysis/` holds the per-session replay scripts described below. The
+  paper's own numbers and figures are produced by the R code in the saccadejs-paper repository
+  (`R/validation.R`), which reads the Zenodo dataset.
+
 ## Hosting
 
-The study runs from GitHub Pages: every push to `main` is live once the Pages build finishes.
-The page is not cross-origin isolated there, and does not need to be: the CPU encoder is a pool
+The study ran from GitHub Pages, which has since been turned off.
+The page was not cross-origin isolated there, and did not need to be: the CPU encoder is a pool
 of single-threaded workers, each encoding its own frames, which works on any host (splitting one
 frame across threads needed isolation and did not scale). `cross_origin_isolated` in the data
 says whether a session had it.
 
-1.3.0 was also served from https://cogsciresearch.vassar.edu/jdeleeuw/eyetracking-cookoff/,
-which sends the COOP/COEP headers (`deploy/eyetracking-cookoff.conf`, deployed with
-`scripts/deploy-vassar.sh`). That copy is no longer updated; from 1.3.1 GitHub Pages is the only
-deployment. ONNX Runtime is served from `lib/ort/` (`scripts/sync-ort.sh`), so the workers do
+1.3.0 was also served from a university web server that sent the COOP/COEP headers; from 1.3.1
+GitHub Pages is the only deployment. ONNX Runtime is served from `lib/ort/` (`scripts/sync-ort.sh`), so the workers do
 not depend on the CDN. `python3 scripts/serve.py 8791 --isolate` sends the isolation headers
 locally, and `test/pool-check.html` times the CPU encoder with 1 to 4 workers (run it in a
 foreground tab).
 
 ## Running it
 
-saccade.js is not published to npm yet, so the experiment is served from local builds:
+`lib/` holds the saccade.js build and model that participants ran, so `python3 scripts/serve.py`
+is enough to run the experiment as it was. To rebuild `lib/` from a saccade.js checkout instead:
 
 ```bash
 cd ../saccadejs && npm install && npm run build   # once
@@ -54,7 +73,8 @@ Then open <http://localhost:8777/index.html> in Chrome or Edge. A webcam and a s
 setup screen.
 
 `scripts/sync-saccade.sh` takes the path to the saccade.js repo as an optional argument and
-defaults to `../saccadejs`. `lib/` is gitignored — re-run the script after rebuilding saccade.js.
+defaults to `../saccadejs`. `lib/` is committed, so the repo keeps the exact build participants
+ran — re-run the script after rebuilding saccade.js.
 
 ### A short build for the moving-target block
 
@@ -74,9 +94,9 @@ the viewport, so testing it in a window tests different geometry.
 
 ## Deploying on Prolific
 
-GitHub Pages serves the experiment straight from `main`. `lib/` is committed for that reason:
-the page loads the saccade.js bundles and the 20 MB model from this repo. Before opening a
-study:
+These were the steps for running the study, which is now closed. GitHub Pages served the
+experiment straight from `main`, and the page loaded the saccade.js bundles and the 20 MB model
+from `lib/`. Before opening a study:
 
 1. **Sync saccade.js from a released commit.** Build `jspsych/saccadejs` on `main`, run
    `scripts/sync-saccade.sh`, and commit `lib/`. Every session records
@@ -446,7 +466,20 @@ row, so a test run cannot be mistaken for a participant.
 
 ## Releasing the data
 
-Collect everything, publish the numbers. `privacy.save_eye_crops` is on, so a slow participant's
+The published dataset was built in two steps, from `analysis/`, with the raw sessions in the
+gitignored `data/` folder:
+
+```bash
+python encode_crops.py ../data                              # crops a slow machine saved -> embeddings
+python3 build_dataset.py ../data/saccadejs-validation       # version 1.4 sessions, no images or IDs
+```
+
+`build_dataset.py` keeps only the version 1.4 sessions (the main data collection), removes the
+raw eye images, replaces Prolific IDs with pseudonyms, and joins four Prolific demographics.
+`analysis/dataset-README.md` is the README it ships with the dataset.
+
+The rest of this section is the reasoning behind that design, and `redact.py`, which makes a
+public copy of a single session. Collect everything, publish the numbers. `privacy.save_eye_crops` is on, so a slow participant's
 un-encoded frames keep their raw crops in the recorded session — and the sharing decision is
 made at release time instead:
 
@@ -559,6 +592,9 @@ analysis/replay.py              offline calibration and accuracy for both tracke
 analysis/pursuit.py             what the timing measurement is worth, from the moving target
 analysis/saccades.py            saccade latency, from the arrival at each station
 analysis/redact.py              make the public copy: numbers in, pictures out
+analysis/encode_crops.py        put a slow machine's saved eye crops through the model
+analysis/build_dataset.py       build the published dataset from the raw sessions
+analysis/dataset-README.md      the README shipped with that dataset
 analysis/observers.py           illumination, head position, distance, eye state per session
 docs/DATA.md                    the data dictionary
 scripts/sync-saccade.sh         copy saccade.js builds + model into lib/
